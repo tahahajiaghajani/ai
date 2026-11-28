@@ -16,7 +16,7 @@ import { ImageDropzone } from "@/components/admin/image-dropzone";
 import { MediaEditDialog } from "@/components/admin/media-edit";
 import { MediaPicker } from "@/components/admin/media-picker";
 import { galleryKey, SlotGallery } from "@/components/admin/slot-gallery";
-import { galleryFiles, slotPicture } from "@/components/admin/slot-payload";
+import { galleryIds, slotPicture } from "@/components/admin/slot-payload";
 import { SlotVideoField } from "@/components/admin/video-upload";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
@@ -46,7 +46,7 @@ interface Draft {
   video: Video | null;
   /** gallery slots only: the ordered pictures (built-in ones without an id until they are copied into the library) */
   gallery: Media[] | null;
-  /** gallery slots only: the list's files as the sheet opened (the list is sent only when it changed) */
+  /** gallery slots only: the list as the server takes it (galleryIds) when the sheet opened; it is sent only when it changed */
   opened: string[] | null;
   texts: Record<string, { fa: string; en: string }>;
   fx: number;
@@ -83,7 +83,7 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
       mobile: r?.mobile ?? null,
       video: r?.video ?? null,
       gallery,
-      opened: gallery && galleryFiles(gallery),
+      opened: gallery && galleryIds(gallery),
       texts: Object.fromEntries(d.texts.map((t) => [t.key, { fa: r?.texts[t.key]?.fa ?? t.fa, en: r?.texts[t.key]?.en ?? t.en }])),
       fx: shown.fx,
       fy: shown.fy,

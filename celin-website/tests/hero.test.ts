@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { FakeDb } from "./stubs/fake-db";
 import { CENTRE_H, CENTRE_W, GAP, heroPose, offsetOf, ringIndex, ringLength, ringNear, SIDE_H, SIDE_W, wrap } from "@/components/home/hero-pose";
 import { focusStillHere, handsOnFocus, restsOnFocus } from "@/components/home/hero-focus";
-import { galleryFiles, slotPicture } from "@/components/admin/slot-payload";
+import { galleryIds, slotPicture } from "@/components/admin/slot-payload";
 import { resolveGallery } from "@/lib/slot-types";
 import type { Media } from "@/lib/media";
 
@@ -15,7 +15,7 @@ import type { Media } from "@/lib/media";
  */
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
-vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined }));
+vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined, refresh: () => undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined, prefetch: () => undefined }), usePathname: () => "/" }));
 vi.mock("@/lib/admin-auth", () => ({ assertAdmin: async () => undefined, isAdmin: async () => true }));
 vi.mock("@/lib/db", async (importOriginal) => {
@@ -262,14 +262,17 @@ describe("the opening's list of pictures (celin_slots.gallery)", () => {
     expect(fake.table("celin_slots").find((r) => r.key === "home.hero.a")).toMatchObject({ media_id: null, texts: { title: { fa: "عنوان تازه", en: "A new title" } } });
   });
 
-  it("has the sheet send the list only when it changed (a built-in picture copied into the library, or a new alt text, is no change)", () => {
+  it("has the sheet send the list only when it changed as the server stores it (a new alt text of a library picture is no change, a built-in picture copied into the library is)", () => {
     const seed: Media = { ...pic("x"), src: "/media/seed/choker-rose" };
     const adopted: Media = { ...seed, id: "id-choker" };
     const [b, c, d] = ["b", "c", "d"].map((k) => pic(k, `id-${k}`));
-    const opened = galleryFiles([seed, b, c]);
+    const opened = galleryIds([seed, b, c]);
+    expect(opened).toEqual(["seed:choker-rose", "id-b", "id-c"]);
     expect(slotPicture(null, { items: [seed, b, c], opened })).toEqual({ media_id: null });
-    expect(slotPicture(b, { items: [b, c, d], opened: galleryFiles([b, c, d]) })).toEqual({ media_id: "id-b" });
-    expect(slotPicture(null, { items: [adopted, { ...b, alt_fa: "تازه", fx: 30 }, c], opened })).toEqual({ media_id: null });
+    expect(slotPicture(b, { items: [b, c, d], opened: galleryIds([b, c, d]) })).toEqual({ media_id: "id-b" });
+    expect(slotPicture(null, { items: [seed, { ...b, alt_fa: "تازه", fx: 30 }, c], opened })).toEqual({ media_id: null });
+    // only the list links a copied built-in picture to the opening: it goes, with the copy's id
+    expect(slotPicture(null, { items: [adopted, b, c], opened })).toEqual({ gallery: ["id-choker", "id-b", "id-c"] });
     // reordered, added, removed: the list goes
     expect(slotPicture(null, { items: [b, seed, c], opened })).toEqual({ gallery: ["id-b", "seed:choker-rose", "id-c"] });
     expect(slotPicture(null, { items: [seed, b, c, d], opened })).toEqual({ gallery: ["seed:choker-rose", "id-b", "id-c", "id-d"] });
@@ -290,7 +293,7 @@ describe("the opening's list of pictures (celin_slots.gallery)", () => {
     const hero = (await getSlotsFresh())["home.hero.a"];
     const items = hero.gallery ?? [];
     expect(items.map((m) => m.alt_fa)).toEqual(["a-own", expect.any(String), "b-own"]);
-    const opened = galleryFiles(items);
+    const opened = galleryIds(items);
     const chosen = hero.media.id ? hero.media : null;
     const video = crypto.randomUUID();
     const texts = {
@@ -305,7 +308,7 @@ describe("the opening's list of pictures (celin_slots.gallery)", () => {
     expect(row).not.toHaveProperty("gallery");
     // the former pictures stay the list's fallback
     expect(fake.table("celin_slots").map((r) => r.key)).toEqual(["home.hero.a", "home.hero.b"]);
-    expect((await getSlotsFresh())["home.hero.a"].gallery?.map((m) => m.src)).toEqual(opened);
+    expect(galleryIds((await getSlotsFresh())["home.hero.a"].gallery ?? [])).toEqual(opened);
     // a changed list still asks for the SQL, and writes nothing
     const moved = [items[1], items[0], items[2]];
     await expect(saveSlot("home.hero.a", { ...slotPicture(chosen, { items: moved, opened }), media_mobile_id: null, video_id: null, texts: {} })).rejects.toThrow("ستون تصاویر سرآغاز");
@@ -318,11 +321,55 @@ describe("the opening's list of pictures (celin_slots.gallery)", () => {
     const { getSlotsFresh, saveSlot } = await import("@/lib/slots");
     const hero = (await getSlotsFresh())["home.hero.a"];
     const items = hero.gallery ?? [];
-    const payload = slotPicture(hero.media.id ? hero.media : null, { items, opened: galleryFiles(items) });
+    const payload = slotPicture(hero.media.id ? hero.media : null, { items, opened: galleryIds(items) });
     expect(payload).toEqual({ media_id: ids[0] });
     await saveSlot("home.hero.a", { ...payload, texts: { title: { fa: "عنوان", en: "Title" } } });
     expect(fake.table("celin_slots")).toHaveLength(1);
     expect(fake.table("celin_slots")[0]).toMatchObject({ media_id: ids[0], gallery: ids, texts: { title: { fa: "عنوان", en: "Title" } } });
+  });
+
+  /**
+   * The sheet, as the owner uses it on the built-in list (nothing saved yet): «توضیح و نقطه‌ی کانونی» on the first
+   * tile copies the built-in picture into the library (adminAdoptSeedImage) and the picture dialog saves the new alt
+   * text and focal point on that row (adminUpdateMedia); then «ذخیره».
+   */
+  async function editFirstBuiltInTile() {
+    const { getSlotsFresh, saveSlot } = await import("@/lib/slots");
+    const { adminAdoptSeedImage, adminUpdateMedia } = await import("@/app/actions/admin-catalog");
+    const hero = (await getSlotsFresh())["home.hero.a"];
+    let items = [...(hero.gallery ?? [])];
+    const opened = galleryIds(items);
+    expect(opened[0]).toBe("seed:choker-rose");
+    const adopted = await adminAdoptSeedImage({ key: "choker-rose" });
+    if (!adopted.ok) throw new Error(adopted.error);
+    items = items.map((x, i) => (i === 0 ? adopted.media : x));
+    const edit = { alt_fa: "چوکر روی گردن، از نزدیک", alt_en: "The choker, close up", focal_x: 20, focal_y: 80 };
+    expect(await adminUpdateMedia({ id: adopted.media.id, ...edit })).toMatchObject({ ok: true });
+    items = items.map((x) => (x.id === adopted.media.id ? { ...x, fx: 20, fy: 80, alt_fa: edit.alt_fa, alt_en: edit.alt_en } : x));
+    const chosen = hero.media.id ? hero.media : null;
+    const save = () => saveSlot("home.hero.a", { ...slotPicture(chosen, { items, opened }), media_mobile_id: null, video_id: null, texts: { title: { fa: "عنوان تازه", en: "A new title" } } });
+    return { id: adopted.media.id!, edit, opened, save };
+  }
+
+  it("shows an edited built-in picture of the list on the site once saved (after the SQL)", async () => {
+    const { id, edit, save } = await editFirstBuiltInTile();
+    await save();
+    const row = fake.table("celin_slots").find((r) => r.key === "home.hero.a") as { gallery: string[]; media_id: string };
+    expect(row.gallery[0]).toBe(id);
+    expect(row.media_id).toBe(id);
+    const { getSlots } = await import("@/lib/slots");
+    const hero = (await getSlots())["home.hero.a"];
+    expect(hero.gallery?.map((m) => m.src)).toEqual(["/media/seed/choker-rose", "/media/seed/earrings-sunburst", "/media/seed/set-cascade"]);
+    expect(hero.gallery?.[0]).toMatchObject({ id, alt_fa: edit.alt_fa, alt_en: edit.alt_en, fx: 20, fy: 80 });
+    expect(hero.media).toMatchObject({ id, alt_fa: edit.alt_fa, fx: 20, fy: 80 });
+    expect(hero.texts.title).toEqual({ fa: "عنوان تازه", en: "A new title" });
+  });
+
+  it("asks for the SQL rather than reporting a save when a built-in picture of the list was edited before it", async () => {
+    fake.columns.celin_slots = SLOT_COLS.filter((c) => c !== "gallery");
+    const { save } = await editFirstBuiltInTile();
+    await expect(save()).rejects.toThrow("ستون تصاویر سرآغاز");
+    expect(fake.table("celin_slots")).toHaveLength(0);
   });
 
   it("goes back to the built-in pictures on reset (the former slots' rows too)", async () => {
