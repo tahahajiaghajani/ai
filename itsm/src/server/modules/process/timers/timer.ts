@@ -1,6 +1,9 @@
 // `process.timer` (design F §3.5 «Step SLA and escalation», §3.6.3, package F4b): one job per organisation, on the
 // authority only, that looks after the open rounds of form steps with a time:
-//   · «یادآوری مرحله» every `remind_every` to each person still waiting (calendar time, from the opening or the last);
+//   · «یادآوری مرحله» every `remind_every` to each person still waiting, from their task's opening (moved on by a
+//     pause, `timers_from`) or their last reminder, on the step's clock as its deadline and escalations count (`plus`:
+//     business time unless the step says otherwise — a reminder of a «به وقت کاری» step never falls in the evening, on
+//     a holiday or at the weekend, BH1 of 1.1.5's scenarios);
 //   · escalations, in the order of their time (`after`, counted from the round's opening — moved on by the time the
 //     case was paused, `timers_from` — business time unless the step says otherwise), each once — `notify` the
 //     person's manager, the holders of the position's «گزارش به» nearest up from the unit the open task is held in (the
@@ -377,16 +380,18 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
     for (const t of open) if (!(msOf(t.escalated_at) >= now)) await updateIn(tx, sys, "process_task", t.id, { escalated_at: iso(now) }, { trusted: true });
   }
   if (step.remind_every) {
-    const every = durationMs(step.remind_every);
-    const due = open.filter((t) => (msOf(t.reminded_at) || fromOf(t)) + every <= now);
-    for (const t of open) if (!due.includes(t)) later((msOf(t.reminded_at) || fromOf(t)) + every);
+    const every = step.remind_every;
+    // the next reminder of each: `remind_every` after their last one (or the opening), on the step's clock
+    const remindedNext = (t: RoundTask) => plus(clock, step, msOf(t.reminded_at) || fromOf(t), every);
+    const due = open.filter((t) => remindedNext(t) <= now);
+    for (const t of open) if (!due.includes(t)) later(remindedNext(t));
     if (due.length) {
       await notifyPeople(tx, orgId, {
         table: "process_case", id: kase.id, users: due.map((t) => t.assigned_to).filter(isId), event: "custom", label: "یادآوری مرحله", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
         subject: `یادآوری مرحله: «${label}»`, body: `مرحلهٔ «${label}» از پروندهٔ ${kase.number ?? ""}${titled(kase)} هنوز منتظر شماست`,
       });
       for (const t of due) await updateIn(tx, sys, "process_task", t.id, { reminded_at: iso(now) }, { trusted: true });
-      later(now + every);
+      later(plus(clock, step, now, every));
     }
   }
   return next as number | null;
@@ -400,7 +405,7 @@ export interface RoundFacts {
   mark: number;
   /** the earliest due time of its open tasks */
   due: number;
-  /** the earliest last reminder (or opening) of its open tasks */
+  /** the earliest last reminder (or opening) of its open tasks: the next is `remind_every` later on the step's clock */
   remind: number;
 }
 
@@ -417,7 +422,7 @@ export function roundNextAt(clock: Clock, step: FormStep, timeoutWired: boolean,
     }
   }
   if (timeoutWired && Number.isFinite(f.due)) at.push(f.due);
-  if (step.remind_every && Number.isFinite(f.remind)) at.push(f.remind + durationMs(step.remind_every));
+  if (step.remind_every && Number.isFinite(f.remind)) at.push(plus(clock, step, f.remind, step.remind_every));
   const ok = at.filter(Number.isFinite);
   return ok.length ? Math.min(...ok) : null;
 }

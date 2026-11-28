@@ -24,7 +24,7 @@ import type { FlowOption } from "./api";
 import {
   ACTION_OPTIONS, END_OPTIONS, ESCALATION_LABELS, ESCALATION_TO_LABELS, NEW_STEP_OPTIONS, QUORUM_OPTIONS, addFromPort, assigneesOf, assigneesPatch, autoOutcomes, caseRules,
   dropConnection, earlierSteps, formPatch, inputRows, itemConfig, joinPatch, newCaseKey, newEscalation, newStepOf, outcomeText, patchConfig, portRows, quorumPatch, rawCases,
-  removeNode, setAction, setCases, setLabel, setPortTarget, startersText, stepNotices, stepTitles, tabProblems, valueRows, waitsInBusinessTime,
+  removeNode, setAction, setCases, setLabel, setPortTarget, startersText, stepNotices, stepTitles, tabProblems, valueRows, waitsInBusinessTime, keepsTime,
   type CaseField, type FormChoice, type FormInfo, type InspectorTab,
 } from "./model";
 import { CaseRulesEditor, DurationField, F, I14, PillMenu } from "./parts";
@@ -334,7 +334,7 @@ function FormStepBody(p: NodeInspectorProps) {
       <F label="مهلت انجام" htmlFor={`${uid}-due`} hint="از وقتی مرحله برای کسی باز می‌شود.">
         <DurationField id={`${uid}-due`} label="مهلت انجام" value={step.due} disabled={!editable} clearable onChange={(d) => patch({ due: d ?? undefined })} />
       </F>
-      {step.due ? (
+      {keepsTime(step) ? (
         <Checkbox checked={step.business !== false} disabled={!editable} onChange={(e) => patch({ business: e.target.checked ? undefined : false })}>
           به وقت کاری (تعطیلات و ساعت‌های بیرون از کار شمرده نمی‌شود)
         </Checkbox>
