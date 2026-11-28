@@ -9,8 +9,8 @@ import { commonCopy } from "@/content/copy/common";
 import { formatDate, formatPct, formatPrice, latinDigits, normalizePhone, num, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
-import { MAX_QTY, type CartLine } from "@/lib/order-meta";
-import { invoiceLines, linePieces, piecePrice } from "@/lib/basket";
+import type { CartLine } from "@/lib/order-meta";
+import { invoiceLines, linePieces, lineRoom, piecePrice } from "@/lib/basket";
 import { maxPacks, packCap } from "@/lib/packs";
 import { invoice, listPrice, unitAt } from "@/lib/pricing";
 import { saleTitle } from "@/lib/sale";
@@ -62,6 +62,8 @@ interface LineView {
   variant?: CartVariant;
   price: number | null;
   stock: number;
+  /** pieces of the same piece and option in the other lines (counted only from a real count: Pro accounts) */
+  others: number;
   /** the pieces this line may hold: the stock less the other lines of the same piece and option (pieces) */
   room: number;
   problem: Problem;
@@ -80,13 +82,12 @@ function view(lines: CartLine[], products: Map<string, CartProduct>, book: Price
     const needsVariant = !gone && !line.variantId && (product!.variants.length > 0 || Object.keys(pp!.variants).length > 0);
     const price = gone ? null : (piecePrice(book.prices, line) ?? null);
     const stock = gone ? 0 : vp ? vp.stock : pp!.stock;
-    // a single line and a pack line of the same piece and option share its stock. A count below one line's cap is a
-    // real one (a Pro account's stock); members only ever get "orderable" (MAX_QTY) — the database checks the rest.
-    const others = stock < MAX_QTY ? lines.filter((l) => l !== line && l.productId === line.productId && l.variantId === line.variantId).reduce((n, l) => n + linePieces(l), 0) : 0;
-    const room = Math.max(0, stock - others);
+    // a single line and a pack line of the same piece and option share its stock, whenever the account sees real
+    // counts (Pro, any size of stock); members only ever get "orderable" — the database checks the rest
+    const { others, room } = lineRoom(lines, line, stock, book);
     const unsold = !gone && !(product!.packs ?? [1]).includes(line.pack);
     const problem: Problem = gone ? "gone" : needsVariant ? "variant" : unsold ? "pack" : stock <= 0 ? "out" : linePieces(line) > room ? "over" : price === null ? "noPrice" : null;
-    return { line, product, variant, price, stock, room, problem };
+    return { line, product, variant, price, stock, others, room, problem };
   });
 }
 
@@ -392,7 +393,7 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
     : r.problem === "variant" ? c.chooseOption
     : r.problem === "pack" ? c.packGone
     : r.problem === "out" ? c.out
-    : r.problem === "over" ? c.over(num(r.stock, lang))
+    : r.problem === "over" ? (r.others > 0 ? c.overShared(num(r.stock, lang), num(r.others, lang)) : c.over(num(r.stock, lang)))
     : r.problem === "noPrice" ? c.noPriceNote
     : null;
 

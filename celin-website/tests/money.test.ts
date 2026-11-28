@@ -195,3 +195,44 @@ describe("ordering before round six's database file has run", async () => {
     expect(calls[0]).toHaveProperty("p_expect");
   });
 });
+
+describe("the basket: a single line and pack lines of one option share its stock", async () => {
+  const { lineRoom, realCount } = await import("@/lib/basket");
+  const { maxPacks, packCap } = await import("@/lib/packs");
+  const { accountCopy } = await import("@/content/copy/account");
+  const exact = { showStock: true, stockDisplay: "exact" as const, lowStock: 3 };
+  const level = { showStock: true, stockDisplay: "level" as const, lowStock: 150 };
+  const member = { showStock: false, stockDisplay: "exact" as const, lowStock: 0 };
+  const singles = { productId: "p", variantId: "v", qty: 99, pack: 1 };
+  const packs = { productId: "p", variantId: "v", qty: 24, pack: 4 };
+  const other = { productId: "p", variantId: "w", qty: 50, pack: 1 };
+
+  it("a Pro account's count is real at any size; a member's «orderable» never is", () => {
+    expect(realCount(120, exact)).toBe(true);
+    expect(realCount(99, exact)).toBe(true);
+    expect(realCount(120, level)).toBe(true); // at or below the low-stock line: a count
+    expect(realCount(151, level)).toBe(false); // above it: «plenty», not a count
+    expect(realCount(99, member)).toBe(false);
+  });
+
+  it("Pro, stock 120, 99 singles: the 4-size pack line has room for 21 pieces (5 packs), not 24 packs", () => {
+    const lines = [singles, packs, other];
+    const r = lineRoom(lines, packs, 120, exact);
+    expect(r).toEqual({ others: 99, room: 21 });
+    expect(maxPacks(4, r.room)).toBe(5);
+    expect(Math.min(packCap(4), maxPacks(4, r.room))).toBe(5); // the stepper's ceiling
+    expect(packs.qty * packs.pack > r.room).toBe(true); // marked «over», with «تغییر به ۵ بسته»
+    expect(lineRoom(lines, singles, 120, exact)).toEqual({ others: 96, room: 24 });
+    // another option keeps its own stock
+    expect(lineRoom(lines, other, 120, exact)).toEqual({ others: 0, room: 120 });
+  });
+
+  it("members: «orderable» is not a count — the database checks the order", () => {
+    expect(lineRoom([singles, packs], packs, 99, member)).toEqual({ others: 0, room: 99 });
+  });
+
+  it("the message says the stock and what the other lines already hold", () => {
+    expect(accountCopy("fa").cart.overShared("۱۲۰", "۹۹")).toBe("فقط ۱۲۰ عدد موجود است و ۹۹ عدد آن در اقلام دیگر همین گزینه است");
+    expect(accountCopy("en").cart.overShared("120", "99")).toBe("Only 120 in stock, and 99 of them are in your other lines of this option");
+  });
+});
