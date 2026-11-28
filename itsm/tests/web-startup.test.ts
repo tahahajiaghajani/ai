@@ -402,8 +402,17 @@ describe("«تازه‌ها» of this release", () => {
 
   it("tells people (1.1.5) a workflow step that found nobody now says why and offers to find its people again", async () => {
     const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
+    const { readFileSync } = await import("node:fs");
     // the owner's report of 1.1.5: «برای «مرحلهٔ فرم» کسی پیدا نشد» with holders in place
     const entry = ADMIN_CHANGELOG.find((e) => e.version === "1.1.5");
     expect(entry?.items.some((x) => /کسی پیدا نشد/.test(x) && /دوباره پیدا کردن انجام‌دهنده/.test(x))).toBe(true);
+    // the release notes' 1.1.5 section: the version /api/health gives once deployed, and why a real member's case on
+    // holders who are all the pack's people still waits (a real case's step never goes to a demo account)
+    const notes = readFileSync(join(__dirname, "..", "docs", "RELEASE_FA.md"), "utf8");
+    const at = notes.indexOf("## کاریز ۱٫۱٫۵");
+    expect(at).toBeGreaterThan(-1);
+    const section = notes.slice(at, notes.indexOf("## کاریز ۱٫۱٫۴"));
+    expect(section).toContain('"version":"1.1.5"');
+    expect(section).toMatch(/مرحلهٔ پروندهٔ واقعی هرگز به حساب نمایشی نمی‌رسد/);
   });
 });
