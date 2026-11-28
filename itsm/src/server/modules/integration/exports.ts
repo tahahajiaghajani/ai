@@ -80,5 +80,20 @@ export function installExportSchedules(): void {
     if (!s || s.active === false) return;
     await runSchedule(cfg, job.org_id, String(s.id));
     return { again: Number(s.every_hours ?? 24) * HOUR };
+  }, {
+    // its last attempt did not finish (its worker stopped during a large export): the schedule shows it and goes on
+    // at its interval — the only other re-arm is an edit of the schedule
+    onExhausted: async (job, ectx) => {
+      if (!job.org_id) return;
+      const cfg = ectx.cfg as ServerConfig;
+      const sys = await systemCtx(cfg, job.org_id);
+      const s = await liveRow(cfg.db, sys, "export_schedule", job.payload.id);
+      if (!s) return;
+      const every = Number(s.every_hours ?? 24) * HOUR;
+      await sys.write(async (tx) => {
+        await updateIn(tx, sys, "export_schedule", String(s.id), { health: "failing", last_run_at: new Date().toISOString(), next_run_at: new Date(Date.now() + every).toISOString(), last_status: ectx.error.slice(0, 300) }, { trusted: true, keepVersion: true });
+        if (s.active !== false) await enqueue(tx, { kind: "integration.export.run", orgId: job.org_id!, payload: { id: s.id }, delayMs: every, dedupeKey: `export:${s.id}`, maxAttempts: 2 });
+      });
+    },
   });
 }

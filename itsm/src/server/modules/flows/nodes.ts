@@ -2,7 +2,9 @@
 // «برای هر مورد», «پایان» — live in the executor; everything else is a step handler registered here. Steps that
 // change records are transactional (their writes commit with the step); «فراخوانی HTTP» is in http.ts. «ارسال اعلان»,
 // «درخواست تأیید» and «مهارت هوش مصنوعی» are stand-ins until the notification, approval and AI services register
-// their own handlers (registry.ts).
+// their own handlers (registry.ts). A text people read (a note, a notice, an approval's title and message) writes
+// each pill as its display text (`s.display`: a record's field by its `$labels`, the clock in Jalali); what a step
+// stores (record values, variables, inputs) or compares (conditions) keeps the stored values (`s.render`).
 import { pgArray } from "../../db";
 import { addJournalIn, condEnv, createIn, defFor, requireReadable, updateIn } from "../../engine";
 import { FLOW_LIMITS, compareData, nodeTable, type TriggerConfig } from "@shared/flows";
@@ -140,7 +142,8 @@ registerBuiltinStepHandler("add_comment", {
   transactional: true,
   async run(s) {
     const t = target(s);
-    const body = s.text(s.node.config.body).trim();
+    // a note people read: a record's field as its display text (`$labels`), the clock in Jalali
+    const body = s.display(s.node.config.body).trim();
     if (!body) return { error: "متن یادداشت خالی است" };
     const { def } = await defFor(s.ctx, t.table, s.tx!);
     const row = await requireReadable(s.ctx, def, t.id, await condEnv(s.ctx), s.tx!);
@@ -265,8 +268,8 @@ registerBuiltinStepHandler("subflow", {
 registerBuiltinStepHandler("notify", {
   async run(s) {
     const to = await recipients(s, s.node.config.to);
-    const subject = s.text(s.node.config.subject);
-    const body = s.text(s.node.config.body);
+    const subject = s.display(s.node.config.subject);
+    const body = s.display(s.node.config.body);
     s.log("سرویس اعلان هنوز نصب نیست؛ پیام فقط در گزارش اجرا ثبت شد");
     return { output: { recipients: to.users, groups: to.groups, subject, body, record: aboutRecord(s), sent: false } };
   },
@@ -282,14 +285,14 @@ registerBuiltinStepHandler("approval", {
   async run(s) {
     const approvers = await recipientUsers(s, s.node.config.approvers);
     if (!approvers.length) return { error: "تأییدکننده‌ای پیدا نشد" };
-    const title = s.text(s.node.config.title).slice(0, 300) || "درخواست تأیید";
+    const title = s.display(s.node.config.title).slice(0, 300) || "درخواست تأیید";
     const rule = s.node.config.rule === "all" || s.node.config.rule === "count" ? s.node.config.rule : "any";
     const threshold = rule === "count" ? Math.min(Math.max(1, Math.trunc(Number(s.node.config.threshold ?? 2)) || 1), approvers.length) : null;
     return {
       wait: {
         kind: "approval",
         key: `approval:flow:${s.run.id}:${s.stepKey}`,
-        data: { approvers, rule, threshold, title, message: s.text(s.node.config.message).slice(0, 4000), record: aboutRecord(s), decisions: [] },
+        data: { approvers, rule, threshold, title, message: s.display(s.node.config.message).slice(0, 4000), record: aboutRecord(s), decisions: [] },
       },
       output: { approvers },
     };

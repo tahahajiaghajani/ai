@@ -48,7 +48,18 @@ export function installCaseEnd(): void {
   onRecordEvent("process.case_ended", (e, jctx) => caseRunEnded(jctx.cfg as ServerConfig, e.org_id, e.id, e.data ?? {}), { tables: ["process_case"], kinds: ["record.flow_ended"] });
 }
 
-registerJobHandler("process.cancel_run", async (job, jctx) => {
-  const run = String(job.payload?.run ?? "");
-  if (/^[0-9a-f-]{36}$/i.test(run)) await cancelRun(jctx.cfg as ServerConfig, run, "پرونده لغو شد");
-});
+registerJobHandler(
+  "process.cancel_run",
+  async (job, jctx) => {
+    const run = String(job.payload?.run ?? "");
+    if (/^[0-9a-f-]{36}$/i.test(run)) await cancelRun(jctx.cfg as ServerConfig, run, "پرونده لغو شد");
+  },
+  {
+    // its last attempt did not finish: the canceled case's run is canceled all the same (once more, a compare-and-set),
+    // so it never goes on stepping a case that ended
+    onExhausted: async (job, ectx) => {
+      const run = String(job.payload?.run ?? "");
+      if (/^[0-9a-f-]{36}$/i.test(run)) await cancelRun(ectx.cfg as ServerConfig, run, "پرونده لغو شد");
+    },
+  },
+);

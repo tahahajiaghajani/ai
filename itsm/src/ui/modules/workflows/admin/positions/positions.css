@@ -37,3 +37,9 @@
   padding-inline-start: 20px;
   color: var(--ds-text);
 }
+/* a holder's name and «نمایشی» (the demo pack's people) */
+.wfp-who-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

@@ -239,5 +239,23 @@ export function installImportJobs(): void {
       return false;
     });
     if (!ok) await scheduleImportIn(cfg.db, job.org_id, set);
+  }, {
+    // its worker stopped at its last attempt (a large URL import that never fits the web's time limit): the run ends
+    // «failed» as the handler's own failure path leaves it, and the schedule goes on with the next run at its interval
+    onExhausted: async (job, ectx) => {
+      if (!job.org_id) return;
+      const cfg = ectx.cfg as ServerConfig;
+      const sys = await systemCtx(cfg, job.org_id);
+      await sys.write(async (tx) => {
+        const set = await liveRow(tx, sys, "import_set", job.payload.id);
+        if (!set) return;
+        const scheduled = Number(set.schedule_hours ?? 0) > 0 && set.source === "url";
+        if (set.status === "running") {
+          const next = scheduled ? { next_run_at: new Date(Date.now() + Number(set.schedule_hours) * HOUR).toISOString() } : {};
+          await updateIn(tx, sys, "import_set", String(set.id), { status: "failed", last_error: ectx.error.slice(0, 2000), ...next }, { trusted: true });
+        }
+        await scheduleImportIn(tx, job.org_id!, set);
+      });
+    },
   });
 }

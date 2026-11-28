@@ -211,5 +211,11 @@ export function installSkillTriggers(): void {
     }
     invalidateTriggers(job.org_id);
     return { again: SCHEDULE_EVERY_MS };
+  }, {
+    // the round used its attempts (its worker stopped, or it failed, each time): it goes on at its interval — it is
+    // queued again otherwise only when a skill with a schedule is saved
+    onExhausted: async (job, ectx) => {
+      if (job.org_id) await enqueue(ectx.db, { kind: "ai.skills.schedule", orgId: job.org_id, payload: {}, dedupeKey: "ai.skills.schedule", delayMs: SCHEDULE_EVERY_MS });
+    },
   });
 }

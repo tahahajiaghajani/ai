@@ -6,8 +6,12 @@
 import { describe, expect, it, beforeAll, vi } from "vitest";
 import { analyticsWorld, type AnalyticsWorld } from "./analytics-helpers";
 import { enqueue, tick } from "@server/jobs";
-import { registerHooks, systemCtx } from "@server/engine";
-import { collectIndicator } from "@server/modules/analytics/indicators";
+import { orgTz, registerHooks, systemCtx } from "@server/engine";
+import { memberCtx } from "@server/access";
+import { collectIndicator, scorecard } from "@server/modules/analytics/indicators";
+import { periodOf } from "@shared/analytics/kpi";
+import { fromJalali } from "@shared/jalali";
+import { zonedMidnight } from "@shared/model/jalali-buckets";
 import { stopAt } from "@server/modules/analytics/jobs";
 import { toolCatalog } from "@server/modules/ai/tools";
 import { definitionActions } from "../src/ui/modules/analytics/model";
@@ -211,18 +215,39 @@ describe("collections at once (analytics-score-total-duplicates)", () => {
 });
 
 describe("point-in-time deltas (analytics-pointintime-delta-mixes-scopes)", () => {
-  it("a reader whose live scope is smaller compares the stored numbers, never live against stored", async () => {
+  // The clock is pinned through the module's own `now` (collectIndicator, scorecard), at fixed local times in the
+  // organisation's time zone. The previous period's snapshot used to be taken 40 days before the wall clock: two months
+  // back on the first nine to eleven days of every Jalali month (on 1 Azar 1405 it was 21 Mehr), so the previous period
+  // had no stored score at all. It is now the previous period's last snapshot, a millisecond before the current
+  // period's midnight.
+  const cases = [
+    { when: "1 Azar 1405 00:30, the first day of a month", date: [1405, 9, 1], minute: 30, current: "1405-09", previous: "1405-08" },
+    { when: "10 Azar 1405 12:00, when 40 days back is still two months back", date: [1405, 9, 10], minute: 12 * 60, current: "1405-09", previous: "1405-08" },
+    { when: "15 Azar 1405 12:00, the middle of a month", date: [1405, 9, 15], minute: 12 * 60, current: "1405-09", previous: "1405-08" },
+    { when: "30 Azar 1405 23:30, the last day of a month", date: [1405, 9, 30], minute: 23 * 60 + 30, current: "1405-09", previous: "1405-08" },
+    { when: "1 Farvardin 1406 00:30, the first day of a year", date: [1406, 1, 1], minute: 30, current: "1406-01", previous: "1405-12" },
+  ] as const;
+
+  it.each(cases)("a reader whose live scope is smaller compares the stored numbers, never live against stored ($when)", async ({ date, minute, current, previous }) => {
+    const sys = await systemCtx(w.e.cfg, w.e.org);
+    const tz = orgTz(sys);
+    const now = zonedMidnight(fromJalali(date[0], date[1], date[2]), tz) + minute * 60_000;
     const ind = (await w.o.post(`${w.P}/r/analytics_indicator`, {
-      name: "رخدادهای باز (آزمون)", key: "test.open_now", formula: "n", grain: "month",
+      name: "رخدادهای باز (آزمون)", key: `test.open_now.${date.join("_")}`, formula: "n", grain: "month", collect: false,
       parts: [{ name: "n", table: "incident", fn: "count", filter: { f: "active", op: "eq", v: true } }], score_shares: [{ kind: "group", id: w.g.network }],
     })).row;
-    const sys = await systemCtx(w.e.cfg, w.e.org);
     const row = (await w.o.get(`${w.P}/r/analytics_indicator/${ind.id}`)).row;
-    await collectIndicator(sys, row, { now: Date.now() - 40 * 86_400_000 });
-    await collectIndicator(sys, row);
-    const card = (await w.p.other.client.get(`${w.P}/analytics/scorecard?ids=${ind.id}`)).items as Record<string, any>[];
-    const item = card.find((i) => i.id === ind.id)!;
-    expect(item.previous.value).toBeGreaterThan(item.current.value);
+    // the previous period's last moment, then now: each snapshot lands in its own period
+    await collectIndicator(sys, row, { now: zonedMidnight(periodOf("month", now, tz).start, tz) - 1 });
+    await collectIndicator(sys, row, { now });
+    const reader = await memberCtx(w.e.cfg, w.e.org, w.p.other.userId);
+    const item = (await scorecard(reader, { ids: [ind.id], now, trend: 12 })).items.find((i) => i.id === ind.id)!;
+    expect([item.previous.key, item.current.key]).toEqual([previous, current]);
+    expect(item.stored?.map((p) => p.key)).toEqual([previous, current]);
+    // the previous value is the organisation's stored number, the current one the reader's own (smaller) live count…
+    expect(typeof item.current.value).toBe("number");
+    expect(item.previous.value).toBeGreaterThan(item.current.value as number);
+    // …and the change compares the two stored numbers, never live against stored
     expect(item.delta).toBe(0);
   });
 });

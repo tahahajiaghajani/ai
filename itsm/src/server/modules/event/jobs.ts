@@ -201,6 +201,21 @@ export function installEventJobs(): (() => void)[] {
         await jctx.save({ ...p, rep: r.rep ?? p.rep ?? 0, index: r.index ?? p.index ?? 0 });
         return { again: Math.max(1000, r.again) };
       }
+    }, {
+      // the round's last attempt did not finish: its escalation stops — left «running», a clear would not reset it and a
+      // re-opened alert would never escalate again — and the alert's journal says why
+      onExhausted: async (job, ectx) => {
+        const p = job.payload as { alert?: string; round?: number };
+        if (!job.org_id || !isUuid(p.alert)) return;
+        const alertId = p.alert;
+        const sys = await systemCtx(ectx.cfg as never, job.org_id);
+        await sys.write(async (tx) => {
+          const alert = await liveRow(tx, sys, "alert", alertId);
+          if (!alert || alert.escalation_state !== "running" || Number(alert.escalation_round ?? 0) !== Number(p.round)) return;
+          await updateIn(tx, sys, "alert", alertId, { escalation_state: "stopped", next_escalation_at: null }, { trusted: true, keepVersion: true });
+          await alertNote(tx, sys, alert, `ارتقای این هشدار متوقف شد: ${ectx.error}`);
+        });
+      },
     }),
     registerJobHandler(INCIDENT_RULE_JOB, async (job, jctx) => {
       if (!job.org_id || !actsHere(jctx.cfg)) return;

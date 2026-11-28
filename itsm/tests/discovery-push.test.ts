@@ -128,6 +128,24 @@ describe("the push API (design A §12)", () => {
     expect(abandoned.snapshot.state).toBe("abandoned");
     expect(abandoned.warnings.at(-1).message).toBe(PUSH_MESSAGES.snapshotAbandoned);
     expect((await itemsOf()).filter((i) => i.state !== "gone").map((i) => i.external_id)).toEqual(["srv-b", "srv-c", "srv-d"]);
+    // the missing part sent late under the same id: its records are taken, but an id with an abandoned part is never
+    // finalised — the part waits for ever — so the guide's remedy is the whole snapshot again under a new id
+    await api.req("POST", `${P()}/batches`, { batch_id: "s2-p2", snapshot: { id: "s2", part: 2, parts: 2 }, records: [rec("srv-b"), rec("srv-c")] }, 202);
+    await settle();
+    const late = await api.get(`${P()}/batches/s2-p2`);
+    expect(late.state).toBe("done");
+    expect(late.snapshot.state).toBe("waiting");
+    expect((await api.get(`${P()}/batches/s2-p1`)).snapshot.state).toBe("abandoned");
+    const finalised = async (id: string) =>
+      (await w.q<Row>(`select 1 from sm_discovery_runs where connector_id = $1 and cursor->>'snapshot' = $2`, [conn.id, id])).length;
+    expect(await finalised("s2")).toBe(0);
+    // sent again whole under a new snapshot.id: finalised, one complete pass
+    await api.req("POST", `${P()}/batches`, { batch_id: "s3-p1", snapshot: { id: "s3", part: 1, parts: 2 }, records: [rec("srv-d")] }, 202);
+    await api.req("POST", `${P()}/batches`, { batch_id: "s3-p2", snapshot: { id: "s3", part: 2, parts: 2 }, records: [rec("srv-b"), rec("srv-c")] }, 202);
+    await settle();
+    expect((await api.get(`${P()}/batches/s3-p2`)).snapshot.state).toBe("finalised");
+    expect(await finalised("s3")).toBe(1);
+    expect((await itemsOf()).filter((i) => i.state !== "gone").map((i) => i.external_id)).toEqual(["srv-b", "srv-c", "srv-d"]);
   });
 
   it("diffs a complete problem set", async () => {

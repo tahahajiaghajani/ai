@@ -1,4 +1,5 @@
-// A process form («فرم گردش‌کار», design F §3.2, §8.2; package F5): the palette (library fields not on the form, «فیلد
+// A process form («فرم گردش‌کار», design F §3.2, §8.2; package F5): the palette (library fields not on the form — the
+// demo pack's marked «نمایشی», and one added to the organisation's own form says the purge takes it out —, «فیلد
 // تازه» through the library's own sheet, «یادداشت»), the canvas of tabs › sections › items on the form's grid (drag,
 // or Alt+↑/↓; hidden items stay, dimmed), and the inspector: this form's label, help and width, the item's behaviour
 // («الزامی»، «فقط‌خواندنی»، «پنهان») and «نمایش وقتی…» on the form's other fields; a section's columns; a note's text and
@@ -24,10 +25,11 @@ import { Chip, EmptyState, Loader } from "../../../../components/display";
 import { Field, Note } from "../../../../components/blocks";
 import { useMe, useSchema } from "../../../../records/data/hooks";
 import type { TableMeta } from "../../../../records/model/types";
-import { RightsMatrix } from "../../kit";
+import { DemoTag, RightsMatrix } from "../../kit";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry } from "../fields/api";
-import { fieldsAccess } from "../fields/model";
+import { fieldsAccess, packFieldNotice } from "../fields/model";
 import { FieldSheet } from "../fields/FieldSheet";
+import { labelKey, sharedLabels } from "../fields/labels";
 import { FORM_KEYS, formsApi, type FormDetail, type FormOut } from "./api";
 import {
   VIEWPOINTS, addSection, addTab, autoSpan, clampSel, draftProblems, insertItem, itemMarks, libraryDef, moveItem, paletteFields, processDraft, processPatch,
@@ -145,7 +147,12 @@ function Designer({ detail }: { detail: FormDetail }) {
     },
     [hist.set],
   );
-  const add = (name: string, to?: { t: number; s: number; i?: number }) => edit((d) => insertItem(d.layout, { field: name }, to ?? targetSection(d.layout, sel)));
+  const add = (name: string, to?: { t: number; s: number; i?: number }) => {
+    edit((d) => insertItem(d.layout, { field: name }, to ?? targetSection(d.layout, sel)));
+    // one of the demo pack's fields on the organisation's own form: «حذف داده‌های نمایشی» takes it out again
+    const notice = packFieldNotice(libByName.get(name), { form: detail });
+    if (notice) n.warn(notice, { key: `wfm-pack-${name}` });
+  };
   const addNote = () => edit((d) => insertItem(d.layout, { text: "یادداشت تازه", tone: "info" }, targetSection(d.layout, sel)));
   const remove = async () => {
     if (detail.usage.processes.length) return;
@@ -248,6 +255,7 @@ function Designer({ detail }: { detail: FormDetail }) {
       subtitle={
         <span className="wfm-toolbar">
           {status}
+          {detail.demo ? <DemoTag title="فرم دادهٔ نمایشی" /> : null}
           {saved.changed ? <Chip tone="warning">تغییرهای منتشرنشده</Chip> : null}
           {editable ? <SaveStatus state={state} at={savedAt} problems={problems.length} onRetry={flush} /> : null}
         </span>
@@ -285,6 +293,8 @@ function Designer({ detail }: { detail: FormDetail }) {
 
   // ------------------------------------------------------------------ palette, canvas, inspector
   const offered = paletteFields(lib, draft.layout, q);
+  // fields whose label another library field carries show their technical name (../fields/labels.ts)
+  const twins = sharedLabels(lib);
   const palette = (
     <aside className="wfm-panel wfm-palette" aria-label="فیلدهای کتابخانه">
       <Input allowClear size="small" prefix={<Search {...I14} aria-hidden />} placeholder="جست‌وجوی فیلد" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی فیلد" />
@@ -307,9 +317,11 @@ function Designer({ detail }: { detail: FormDetail }) {
           <ul className="wfm-pal-list">
             {offered.slice(0, 80).map((e) => (
               <li key={e.id}>
-                <button type="button" className="wfm-pal-item" draggable={editable} onDragStart={(ev: DragEvent) => dragField(ev, e.name)} onClick={() => editable && add(e.name)} disabled={!editable} aria-label={`افزودن ${e.label} به فرم`}>
+                <button type="button" className="wfm-pal-item" draggable={editable} onDragStart={(ev: DragEvent) => dragField(ev, e.name)} onClick={() => editable && add(e.name)} disabled={!editable} aria-label={`افزودن ${e.label}${twins.has(labelKey(e.label)) ? ` (${e.name})` : ""} به فرم`}>
                   {e.label}
+                  {e.demo ? <DemoTag title="فیلد دادهٔ نمایشی" /> : null}
                   <small>{e.type_label}</small>
+                  {twins.has(labelKey(e.label)) ? <small className="ds-id">{e.name}</small> : null}
                 </button>
               </li>
             ))}
@@ -328,7 +340,7 @@ function Designer({ detail }: { detail: FormDetail }) {
     const columns = sectionColumns(item);
     return {
       label: item.label || d?.label || item.field,
-      meta: [e?.type_label ?? (d ? FIELD_TYPES[d.type]?.label : "فیلد ناشناخته"), ...itemMarks(item), ...(retired.has(item.field) ? ["بازنشسته"] : [])].join(" · "),
+      meta: [e?.type_label ?? (d ? FIELD_TYPES[d.type]?.label : "فیلد ناشناخته"), ...itemMarks(item), ...(retired.has(item.field) ? ["بازنشسته"] : []), ...(e?.demo ? ["نمایشی"] : [])].join(" · "),
       span: item.span ?? autoSpan(d?.type, columns),
       required: behaviourOf(item) === "required",
       dim: behaviourOf(item) === "hidden",

@@ -200,7 +200,8 @@ describe("the workflow's own steps", () => {
       const big = (await start(w, P.r, p, { values: { u_amount: "500000" } })).case!;
       await w.k.drain();
       const c = await kase(w, small);
-      expect(c.data.u_finance_note).toBe("خودکار برای 500");
+      // a text field takes the amount as people read it (1.1.5: the display text, as the title shows it)
+      expect(c.data.u_finance_note).toBe("خودکار برای ۵۰۰ ریال");
       expect(c.progress.c).toMatchObject({ status: "done", port: "small" });
       const sent = await w.o.db.one<{ output: { recipients: string[]; count: number } }>(`select output from sm_flow_run_steps where run_id = $1 and node_id = 'n'`, [c.run_ref]);
       expect(sent?.output.recipients).toEqual([P.f]);
@@ -303,7 +304,11 @@ describe("people", () => {
     const c = await kase(w, id);
     expect(c).toMatchObject({ state: "waiting", open_rounds: { a: 1 }, current_steps: [{ key: "a", label: "تأیید رئیس شعبه" }] });
     expect((await tasks(w, id)).filter((t) => t.step_key === "a")).toEqual([]);
-    expect(await journal(w, id)).toContain("برای «تأیید رئیس شعبه» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند.");
+    // the journal says why nobody was found, and — this organisation's notices are not seeded yet — that nobody was told
+    // (1.1.5: «مسئولان گردش‌کار باخبر شدند» only when the managers' notice reaches someone; tests/process-owner-path.test.ts)
+    expect(await journal(w, id)).toContain(
+      "برای «تأیید رئیس شعبه» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند (اعلان «مرحلهٔ بی‌انجام‌دهنده» روشن نیست و کسی باخبر نشد). ۱ نفر از افراد برگزیده عضو فعال سازمان نیست.",
+    );
     expect(await w.o.db.one(`select key from sm_flow_waits where run_id = $1`, [c.run_ref])).toEqual({ key: `pstep:${id}:a:1` });
 
     const skip = basic(gone, P.f);

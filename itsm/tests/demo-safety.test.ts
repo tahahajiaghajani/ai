@@ -1,6 +1,9 @@
-// The purge's safety rules (docs/DEMO_FA.md): it never deletes, reverts or erases the history of REAL data.
-// · only what demo work wrote (and what derives from it through a reference) goes — never «made by the system since the
-//   load»; a pack already tombstoned is only finalised;
+// The purge's safety rules (docs/DEMO_FA.md «قواعد ایمنی»). Since 1.1.5 the rule is «real data that depends on demo data
+// is removed or cleaned with it; nothing dangles; nothing widens» (what was built on the pack: tests/demo-purge-built-on,
+// tests/demo-purge-conflicts, tests/demo-derived); what this file keeps is the other half — real data that does NOT
+// depend on demo data is never deleted, reverted or erased:
+// · only what demo work wrote (and what was recorded on it, through a reference) goes — never «made by the system since
+//   the load»; a pack already tombstoned is only finalised;
 // · only real rows demo work changed are put back (column by column, as the table now is), and only when nothing
 //   outside the demo scope changed them since; the platform's own changes and their history stay;
 // · the trail (history, journal, audit) demo people wrote on real records stays;
@@ -57,7 +60,7 @@ async function persona(e: EngineOrg, local: string, roles: string[] = ["agent"])
 const demoWrite = <T,>(e: EngineOrg, sys: Ctx, fn: (tx: Tx) => Promise<T>) => inDemoScope(e.org, () => sys.write(fn));
 const todo = (e: EngineOrg, id: string) => e.db.one<Record<string, any>>(`select * from sm_todos where id = $1`, [id]);
 
-describe("the purge never deletes, reverts or erases real data", () => {
+describe("the purge never deletes, reverts or erases real data that does not depend on demo data", () => {
   let e: EngineOrg;
   let sys: Ctx;
   const ids: Record<string, string> = {};

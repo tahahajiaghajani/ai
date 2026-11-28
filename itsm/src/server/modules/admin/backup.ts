@@ -64,10 +64,23 @@ export async function listBackups(q: Queryable, orgId?: string | null): Promise<
   );
 }
 
+/**
+ * A backup «queued» or «running» that a live job still makes (its admin.backup job queued or running). One that no job
+ * makes any more — its job canceled before 1.1.5 settled the row, or failed and cleaned up — is not in progress.
+ */
+const BEING_MADE = `exists (select 1 from sm_jobs j where j.kind = 'admin.backup' and j.payload->>'id' = b.id::text and j.status in ('queued', 'running'))`;
+/** What a backup that no job makes any more shows when it is settled. */
+export const ORPHAN_BACKUP_ERROR = "کار ساخت این پشتیبان دیگر در صف نیست (لغو شد یا ناتمام ماند)";
+
 export async function createBackup(cfg: ServerConfig, admin: AuthUser, orgId: string, note: string | null): Promise<BackupRow> {
   const org = await cfg.db.one<{ name: string }>(`select name from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("سازمان پیدا نشد");
-  const running = await cfg.db.one(`select 1 from sm_backups where org_id = $1 and status in ('queued', 'running')`, [orgId]);
+  // a backup left «queued»/«running» with no job to make it ends «failed» first: it blocks nothing
+  await cfg.db.query(
+    `update sm_backups b set status = 'failed', error = $2, finished_at = now() where b.org_id = $1 and b.status in ('queued', 'running') and not ${BEING_MADE}`,
+    [orgId, ORPHAN_BACKUP_ERROR],
+  );
+  const running = await cfg.db.one(`select 1 from sm_backups b where b.org_id = $1 and b.status in ('queued', 'running')`, [orgId]);
   if (running) throw conflict("پشتیبان دیگری از این سازمان در حال ساخت است");
   const id = uuidv7();
   await cfg.db.tx(async (tx) => {
@@ -177,7 +190,8 @@ export async function verifyBackup(q: Queryable, id: string): Promise<{ ok: bool
 }
 
 export async function deleteBackup(cfg: ServerConfig, admin: AuthUser, id: string): Promise<void> {
-  const r = await cfg.db.one<{ org_id: string }>(`delete from sm_backups where id = $1 and status in ('done', 'failed') returning org_id`, [id]);
+  // done or failed — or left «queued»/«running» with no job that still makes it
+  const r = await cfg.db.one<{ org_id: string }>(`delete from sm_backups b where b.id = $1 and (b.status in ('done', 'failed') or not ${BEING_MADE}) returning b.org_id`, [id]);
   if (!r) throw notFound("پشتیبان پیدا نشد یا هنوز در حال ساخت است");
   await platformAudit(cfg.db, cfg, admin, { org_id: r.org_id, action: "backup_delete", entity: "backup", entity_id: id, summary: "حذف پشتیبان" });
 }
@@ -303,7 +317,17 @@ let installed = false;
 export function installBackupJobs(): void {
   if (installed) return;
   installed = true;
-  registerJobHandler("admin.backup", async (job, jctx) => {
-    await runBackup(jctx.cfg as ServerConfig, String(job.payload.id));
-  });
+  registerJobHandler(
+    "admin.backup",
+    async (job, jctx) => {
+      await runBackup(jctx.cfg as ServerConfig, String(job.payload.id));
+    },
+    {
+      // its worker stopped at its last attempt (the web version's time limit while the tables were read): the backup
+      // ends «failed», as its own failure path leaves it — a «running» one refuses every later backup of the organisation
+      onExhausted: async (job, ectx) => {
+        await ectx.db.query(`update sm_backups set status = 'failed', error = $2, finished_at = now() where id = $1 and status in ('queued', 'running')`, [String(job.payload.id), ectx.error.slice(0, 1000)]);
+      },
+    },
+  );
 }

@@ -8,7 +8,7 @@ import { uuidv7 } from "@shared/id";
 import { APP_VERSION, SYNC_PROTOCOL, deviceOutdated } from "@shared/constants";
 import { bad, conflict, notFound } from "../../http/errors";
 import { platformAudit } from "../platform/audit";
-import { enqueue, tick, registerJobHandler } from "../../jobs";
+import { cancelQueuedJob, enqueue, retryFailedJob, tick, registerJobHandler } from "../../jobs";
 import { createIn, systemCtx, updateIn } from "../../engine";
 import { migrationStatus } from "../../db/migrate";
 import { notifyPeople } from "../notify";
@@ -337,36 +337,49 @@ export async function listJobs(cfg: ServerConfig, f: { status?: string | null; k
   return { jobs: rows };
 }
 
-/** Retry a failed job now (attempts start again) — the platform owner, or an organisation's administrator for its own. */
-export async function retryJob(q: Queryable, id: string, orgId: string | null): Promise<{ id: string; kind: string; org_id: string | null }> {
-  const r = await q.one<{ id: string; kind: string; org_id: string | null }>(
-    `update sm_jobs set status = 'queued', attempts = 0, run_at = now(), locked_until = null, locked_by = null, done_at = null, updated_at = now()
-     where id = $1 and status = 'failed' ${orgId ? "and org_id = $2" : ""} returning id, kind, org_id`,
-    orgId ? [id, orgId] : [id],
-  );
-  if (!r) throw notFound("کار ناموفقی با این شناسه پیدا نشد");
-  return r;
+/** What the consoles' «دوباره» and «لغو» did: the job's status now, and a sentence when it is not the obvious one. */
+export interface JobActionResult {
+  id: string;
+  kind: string;
+  org_id: string | null;
+  status: "queued" | "failed";
+  message?: string;
 }
 
-/** Cancel a queued job (kept as failed with the reason). */
-export async function cancelJob(q: Queryable, id: string, orgId: string | null): Promise<{ id: string; kind: string; org_id: string | null }> {
-  const r = await q.one<{ id: string; kind: string; org_id: string | null }>(
-    `update sm_jobs set status = 'failed', last_error = 'لغو به دست مدیر', done_at = now(), updated_at = now()
-     where id = $1 and status = 'queued' ${orgId ? "and org_id = $2" : ""} returning id, kind, org_id`,
-    orgId ? [id, orgId] : [id],
-  );
+/**
+ * Retry a failed job now (attempts start again) — the platform owner, or an organisation's administrator for its own.
+ * A chain's round whose next round is already queued (its kind's exhausted hook re-armed it) runs that round now: the
+ * answer names it (`id`) and says so (`message`).
+ */
+export async function retryJob(q: Queryable, id: string, orgId: string | null): Promise<JobActionResult> {
+  const r = await retryFailedJob(q, id, orgId);
+  if (!r) throw notFound("کار ناموفقی با این شناسه پیدا نشد");
+  return { id: r.id, kind: r.kind, org_id: r.org_id, status: "queued", ...(r.twin ? { message: "دور بعدی این کار در صف بود و اکنون اجرا می‌شود" } : {}) };
+}
+
+/**
+ * Cancel a queued job: kept as failed with the reason, and its kind gives its last word as for a job that ended
+ * without finishing (a backup «queued» ends «failed», a chain's next round is queued at its interval).
+ */
+export async function cancelJob(cfg: ServerConfig, id: string, orgId: string | null): Promise<JobActionResult> {
+  const r = await cancelQueuedJob(cfg, id, orgId);
   if (!r) throw notFound("کار در صفی با این شناسه پیدا نشد");
-  return r;
+  return { id: r.id, kind: r.kind, org_id: r.org_id, status: "failed" };
 }
 
 export async function jobAction(cfg: ServerConfig, admin: Admin, id: string, action: "retry" | "cancel") {
-  const r = action === "retry" ? await retryJob(cfg.db, id, null) : await cancelJob(cfg.db, id, null);
+  const r = action === "retry" ? await retryJob(cfg.db, id, null) : await cancelJob(cfg, id, null);
   await platformAudit(cfg.db, cfg, admin, { org_id: r.org_id, action: `job_${action}`, entity: "job", entity_id: r.id, summary: `${action === "retry" ? "اجرای دوباره" : "لغو"} کار ${r.kind}` });
   return r;
 }
 
+/**
+ * The console's «اجرای اکنون»: the due jobs, for 5 s. A request's tick like the others (src/server/app.ts): the deletion
+ * of finished jobs is left to the queue's own heartbeat (GET /api/cron/tick on the web, the timers of the Windows app
+ * and the server edition), so the whole budget goes to the jobs the platform owner asked to run.
+ */
 export async function tickNow(cfg: ServerConfig) {
-  return tick(cfg, { budgetMs: 5000 });
+  return tick(cfg, { budgetMs: 5000, cleanup: false });
 }
 
 // ---------------------------------------------------------------- version and upgrade status

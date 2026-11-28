@@ -20,12 +20,12 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, onRecordEvent, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
-import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
+import { enqueue, registerJobHandler, type ExhaustedContext, type Job, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
 import { isUuid, itamConfig, liveRow, liveRows, lockedRow, orgToday, type Row } from "./common";
 import { discoveredStep, fromCi, linkCi } from "./assets";
 import { checkStockRules } from "./stock";
-import { reconcile, renormalize, syncInstalls } from "./sam";
+import { reconcile, reconcileExhausted, renormalize, syncInstalls } from "./sam";
 import { bookValueOf, setHandOver } from "./hooks";
 import { openAttestations } from "./bank";
 
@@ -305,6 +305,18 @@ export async function consumePartIn(tx: Tx, sys: Ctx, e: RecordEvent): Promise<{
   return { asset_id: null, problem };
 }
 
+/** A job names the reconciliation run it started in its payload (`reconcileExhausted` ends it if the job cannot). */
+const runNamed = (job: Job, jctx: JobContext) => (runId: string) => jctx.save({ ...job.payload, reconcile_run: runId });
+
+/** The reconciliation jobs' exhausted hook: the run their last attempt left «running» ends «failed». */
+const runExhausted = {
+  onExhausted: async (job: Job, ectx: ExhaustedContext) => {
+    const runId = (job.payload as { reconcile_run?: unknown }).reconcile_run;
+    if (!job.org_id || !isUuid(runId)) return;
+    await reconcileExhausted(await systemCtx(ectx.cfg, job.org_id), runId, ectx.error);
+  },
+};
+
 export function installItamJobs(): (() => void)[] {
   return [
     registerJobHandler("itam.ci_link", async (job, jctx) => {
@@ -320,8 +332,8 @@ export function installItamJobs(): (() => void)[] {
     registerJobHandler("itam.reconcile", async (job, jctx) => {
       if (!job.org_id || !actsHere(jctx.cfg)) return;
       const trigger = (job.payload as { trigger?: "manual" | "schedule" | "change" }).trigger ?? "change";
-      await reconcile(await systemCtx(jctx.cfg, job.org_id), trigger);
-    }),
+      await reconcile(await systemCtx(jctx.cfg, job.org_id), trigger, { started: runNamed(job, jctx) });
+    }, runExhausted),
     registerJobHandler("itam.renormalize", async (job, jctx) => {
       if (!job.org_id || !actsHere(jctx.cfg)) return;
       const r = await renormalize(await systemCtx(jctx.cfg, job.org_id));
@@ -331,8 +343,8 @@ export function installItamJobs(): (() => void)[] {
       if (!job.org_id || !actsHere(jctx.cfg)) return;
       const sys = await systemCtx(jctx.cfg, job.org_id);
       await syncInstalls(sys);
-      await reconcile(sys, "schedule");
-    }),
+      await reconcile(sys, "schedule", { started: runNamed(job, jctx) });
+    }, runExhausted),
     registerJobHandler("itam.sweep", async (job, jctx) => {
       if (!job.org_id || !actsHere(jctx.cfg)) return;
       const sys = await systemCtx(jctx.cfg, job.org_id);
@@ -340,11 +352,11 @@ export function installItamJobs(): (() => void)[] {
       await syncInstalls(sys).catch(() => undefined);
       // discovered hardware: a reviewable count until an asset manager made the first batch, then capped daily batches
       await discoveredStep(sys, 200).catch(() => undefined);
-      await reconcile(sys, "schedule").catch(() => undefined);
+      await reconcile(sys, "schedule", { started: runNamed(job, jctx) }).catch(() => undefined);
       // branch managers' periodic attestation: the period's rows per branch, overdue flags
       await openAttestations(sys).catch(() => undefined);
       return { again: SWEEP_EVERY };
-    }),
+    }, runExhausted),
     onRecordEvent("itam.ci", async (e, jctx) => {
       if (!actsHere(jctx.cfg) || !isUuid(e.org_id) || !isUuid(e.id)) return;
       const changed = e.kind === "record.state_changed" ? ["state"] : Array.isArray((e as { changed?: string[] }).changed) ? (e as { changed: string[] }).changed : [];

@@ -9,6 +9,10 @@ import type { DesktopBridge, ServerConfig } from "@server/context";
 import { createIn, systemCtx } from "@server/engine";
 import { inDemoScope } from "@server/db/scope";
 import type { Db } from "@server/db";
+import { registerCloudLink } from "@server/sync/link-state";
+import { cloudLoginVia } from "@local/bridge";
+import { hashPassword } from "@server/auth/password";
+import { uuidv7 } from "@shared/id";
 
 const EMAIL = "demo-linked@example.com";
 const PASSWORD = "demo-linked-pass-1405";
@@ -26,7 +30,12 @@ describe("demo data and a linked Windows app", () => {
   beforeAll(async () => {
     const cloudSrv = await makeServer({ mode: "cloud" });
     cloudDb = cloudSrv.db;
-    const bridge = { notifyLocalWrite() {}, fetchBlob: (o: string, a: string) => client.fetchBlob(o, a) } as unknown as DesktopBridge;
+    // the app's bridge: its sign-in through the cloud is the real one (src/desktop/bridge.ts)
+    const bridge = {
+      notifyLocalWrite() {},
+      fetchBlob: (o: string, a: string) => client.fetchBlob(o, a),
+      cloudLogin: (email: string, password: string) => cloudLoginVia(client, deskDb, email, password),
+    } as unknown as DesktopBridge;
     const deskSrv = await makeServer({ mode: "desktop", config: { desktop: bridge, secret: "desktop-secret" } });
     deskDb = deskSrv.db;
     deskApp = deskSrv.app;
@@ -38,7 +47,10 @@ describe("demo data and a linked Windows app", () => {
     await web.post("/auth/signup", { email: EMAIL, password: PASSWORD, full_name: "مالک ابری" });
     org = (await web.post<{ id: string }>("/orgs", { name: "سازمان پیوندخورده", timezone: "Asia/Tehran" })).id;
     await web.post(`/o/${org}/r/todo`, { short_description: "کار واقعی" });
-    client = new SyncClient({ db: deskDb, config: defaultConfig(), save() {}, log: quietLog, fetch: cloudFetch });
+    const config = defaultConfig();
+    client = new SyncClient({ db: deskDb, config, save() {}, log: quietLog, fetch: cloudFetch });
+    // as the Windows app's server does (src/desktop/server.ts): its link, read in memory
+    registerCloudLink(deskDb, () => config.cloud);
     await client.link({ url: "http://cloud.test", email: EMAIL, password: PASSWORD, orgId: org, direction: "download" });
   }, 600_000);
 
@@ -79,4 +91,37 @@ describe("demo data and a linked Windows app", () => {
     expect(await cloudDb.one(`select 1 from sm_orgs where id = $1`, [soloOrg])).toBeNull();
     expect(await cloudDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeNull();
   }, 600_000);
+  it("a demo person is sent to the server's address on a linked app, never to a switch the app does not have", async () => {
+    const PERSONA = "demo-persona-pass-1405";
+    // the server: the pack, loaded with demo sign-in on, and two of its people (their passwords stay on the server)
+    await cloudDb.query(`insert into sm_demo_packs (org_id, state, size, options, progress) values ($1, 'loaded', 'small', '{"signin": true}'::jsonb, '{}'::jsonb)`, [org]);
+    const persona = async (local: string) => {
+      const id = uuidv7();
+      const email = `${local}.${id.slice(-8)}@aftab-bank.example`;
+      await cloudDb.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, 'کارمند نمایشی', $3, $4::jsonb)`, [id, email, await hashPassword(PERSONA), JSON.stringify({ demo_org: org })]);
+      await cloudDb.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users')`, [org, id]);
+      await cloudDb.query(`insert into sm_org_members (id, org_id, user_id, role) values ($1, $2, $3, 'member')`, [uuidv7(), org, id]);
+      return { id, email };
+    };
+    const agent = await persona("agent");
+    const branch = await persona("branch");
+    // in the browser, at the server, the persona signs in
+    await new Client(cloudApp, "http://cloud.test").post("/auth/login", { email: agent.email, password: PERSONA });
+    // the linked app holds the accounts (marked with the pack) but not their passwords
+    await client.syncNow();
+    expect(await deskDb.one<{ prefs: Record<string, unknown>; password_hash: string | null }>(`select prefs, password_hash from sm_users where id = $1`, [agent.id])).toEqual({ prefs: { demo_org: org }, password_hash: null });
+    const local = new Client(deskApp, "http://desk.test");
+    // the server allows demo sign-in: on the linked app the persona is sent there, with its address
+    const there = JSON.stringify(await local.req("POST", "/auth/login", { email: agent.email, password: PERSONA }, 403));
+    expect(there).toContain("مرورگر");
+    expect(there).toContain("http://cloud.test");
+    expect(there).not.toContain("«داده‌های نمایشی» برای زمان ارائه روشن کند");
+    // switched off on the server: the server proved the password, so the app gives the same answer (never «wrong password»)
+    await cloudDb.query(`update sm_demo_packs set options = '{"signin": false}'::jsonb where org_id = $1`, [org]);
+    const off = JSON.stringify(await local.req("POST", "/auth/login", { email: branch.email, password: PERSONA }, 403));
+    expect(off).toContain("مرورگر");
+    // a wrong password stays a wrong password
+    await local.req("POST", "/auth/login", { email: branch.email, password: "wrong-password-1405" }, 401);
+    await cloudDb.query(`delete from sm_demo_packs where org_id = $1`, [org]);
+  }, 120_000);
 });

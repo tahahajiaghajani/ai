@@ -2,7 +2,8 @@
 // the old link of the layout editor), the layout operations both designers share (a table's default form is edited
 // as a layout of field items too), undo and redo, a table's default form as a draft over its overrides and what
 // saving it sends and says, the rights of its preview for a viewpoint, and a process form's draft, autosave state,
-// the steps that use it and its palette. No React, no requests: tested in tests/workflows-admin-forms-ui.test.ts.
+// the steps that use it and its palette (the demo pack's fields marked; what adding one says is ../fields/model's
+// packFieldNotice). No React, no requests: tested in tests/workflows-admin-forms-ui.test.ts.
 import type { FieldDef, FieldGroup, FormArrangement, TableDef } from "@shared/model/types";
 import { FIELD_GROUPS } from "@shared/model/types";
 import {

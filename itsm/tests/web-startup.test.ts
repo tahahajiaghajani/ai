@@ -378,7 +378,7 @@ describe("sign-up and sign-in on every state an account can be in", () => {
 void createPgliteDb;
 
 describe("«تازه‌ها» of this release", () => {
-  it("tells people the web version no longer shows a server error while it prepares its database and sign-up is atomic", async () => {
+  it("tells people the web version no longer shows a server error while it prepares its database, sign-up is atomic and pages no longer wait a minute", async () => {
     const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
     const { APP_VERSION } = await import("@shared/constants");
     const { readFileSync } = await import("node:fs");
@@ -388,12 +388,31 @@ describe("«تازه‌ها» of this release", () => {
     const release = ADMIN_CHANGELOG.filter((e) => e.version === line11 || e.version.startsWith(`${line11}.`) || e.version.startsWith(`${line11}-`));
     expect(ADMIN_CHANGELOG[0]?.version).toBe(APP_VERSION);
     expect(release[0]?.version).toBe(APP_VERSION);
-    const line = release.flatMap((e) => e.items).find((x) => x.startsWith("نسخهٔ وب"));
-    expect(line).toMatch(/آماده‌سازی پایگاه داده/);
-    expect(line).toMatch(/ثبت‌نام/);
+    // several releases of the line speak of the web version (1.1.4 too): one of its lines is the start-up fix
+    const web = release.flatMap((e) => e.items).filter((x) => x.startsWith("نسخهٔ وب"));
+    expect(web.some((x) => /آماده‌سازی پایگاه داده/.test(x) && /ثبت‌نام/.test(x))).toBe(true);
+    // 1.1.4: the organisation page and the others no longer hang until the platform's one-minute cut
+    const hang = ADMIN_CHANGELOG.find((e) => e.version === "1.1.4");
+    expect(hang?.items.some((x) => x.startsWith("نسخهٔ وب") && /یک دقیقه/.test(x))).toBe(true);
     const notes = readFileSync(join(__dirname, "..", "docs", "RELEASE_FA.md"), "utf8");
     const beta = notes.slice(notes.indexOf("### تازه‌ها"), notes.indexOf("### سه نسخه و نصب"));
     expect(beta).toMatch(/\*\*نسخهٔ وب:\*\* هنگام آماده‌سازی پایگاه داده/);
     expect(beta).toMatch(/حساب نیمه‌کاره/);
+  });
+
+  it("tells people (1.1.5) a workflow step that found nobody now says why and offers to find its people again", async () => {
+    const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
+    const { readFileSync } = await import("node:fs");
+    // the owner's report of 1.1.5: «برای «مرحلهٔ فرم» کسی پیدا نشد» with holders in place
+    const entry = ADMIN_CHANGELOG.find((e) => e.version === "1.1.5");
+    expect(entry?.items.some((x) => /کسی پیدا نشد/.test(x) && /دوباره پیدا کردن انجام‌دهنده/.test(x))).toBe(true);
+    // the release notes' 1.1.5 section: the version /api/health gives once deployed, and why a real member's case on
+    // holders who are all the pack's people still waits (a real case's step never goes to a demo account)
+    const notes = readFileSync(join(__dirname, "..", "docs", "RELEASE_FA.md"), "utf8");
+    const at = notes.indexOf("## کاریز ۱٫۱٫۵");
+    expect(at).toBeGreaterThan(-1);
+    const section = notes.slice(at, notes.indexOf("## کاریز ۱٫۱٫۴"));
+    expect(section).toContain('"version":"1.1.5"');
+    expect(section).toMatch(/مرحلهٔ پروندهٔ واقعی هرگز به حساب نمایشی نمی‌رسد/);
   });
 });

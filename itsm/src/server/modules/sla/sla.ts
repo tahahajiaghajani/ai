@@ -278,6 +278,9 @@ async function applyPlan(w: WriteArgs & { row: Row }): Promise<void> {
   }
 }
 
+/** How long a timer whose job used its attempts waits before it is looked at again. */
+export const TIMER_RETRY_MS = 15 * 60_000;
+
 /** Queue (or bring forward) the job that looks at timer `id` at `at`. */
 export async function schedule(q: Queryable, orgId: string, id: string, at: number): Promise<void> {
   const runAt = new Date(Math.max(at, Date.now())).toISOString();
@@ -523,6 +526,13 @@ export function installSlaEngine(): { apply: () => void; plan: () => void; rest:
         const sys = await systemCtx(jctx.cfg, job.org_id);
         const next = await fireTimer(sys, String(job.payload.id));
         if (next !== null) return { again: Math.max(1000, next - Date.now()) };
+      }, {
+        // the timer's job used its attempts (its worker stopped, or it failed, each time): the timer is looked at again
+        // after a back-off — nothing else queues it until the record's next write, so its warning and breach would
+        // never come (a timer that has nothing more to do ends there)
+        onExhausted: async (job, ectx) => {
+          if (job.org_id && typeof job.payload?.id === "string") await schedule(ectx.db, job.org_id, job.payload.id, Date.now() + TIMER_RETRY_MS);
+        },
       });
       registerJobHandler("sla.recalc", async (job, jctx) => {
         if (!job.org_id) return;

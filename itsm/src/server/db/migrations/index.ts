@@ -27,6 +27,8 @@ import xidRevisions from "./0100_xid_revisions";
 import jobsFailedIdx from "./0103_jobs_failed_idx";
 import deviceProtocol from "./0101_device_protocol";
 import ciIdentityIndexes from "./0104_ci_identity_indexes";
+import demoPurgeSync from "./0105_demo_purge_sync";
+import jobsHookDue from "./0106_jobs_hook_due";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -72,6 +74,8 @@ export const MIGRATIONS: Migration[] = [
   { id: "0103_jobs_failed_idx", title: "سرعت: نمایهٔ کارهای ناموفق پس‌زمینه برای خلاصهٔ کارهای کنسول‌ها", sql: jobsFailedIdx },
   { id: "0101_device_protocol", title: "برنامه‌های ویندوز: پروتکل همگام‌سازی هر دستگاه، تا برنامه‌های قدیمی‌ای که سرور نمی‌پذیرد شمرده شوند", sql: deviceProtocol },
   { id: "0104_ci_identity_indexes", title: "شناسایی پیکربندی در مقیاس بانکی: نمایه‌های عبارتی شمارهٔ سریال، برچسب اموال، شناسهٔ BIOS، نام میزبان، FQDN، نشانی MAC و نام", sql: ciIdentityIndexes },
+  { id: "0105_demo_purge_sync", title: "داده‌های نمایشی و برنامه‌های ویندوز: فهرست شناسه‌های حذف‌شده تا برنامه‌ای که دور بوده آن‌ها را برنگرداند، و یک بار به‌روزرسانی دامنهٔ دید اعضا در هر مرحلهٔ حذف", sql: demoPurgeSync },
+  { id: "0106_jobs_hook_due", title: "کارهای پس‌زمینه: پایان‌بندی هر کار ناتمام (وضعیت نهایی ردیف آن یا نوبت بعدی‌اش) تا انجام نشده، در نوبت‌های بعد دوباره امتحان می‌شود", sql: jobsHookDue },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

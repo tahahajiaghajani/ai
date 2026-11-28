@@ -1,11 +1,12 @@
 // Windows app settings: backups, LAN (office network) mode and the link with the web version.
 import { useState } from "react";
 import { Button, Table, Switch, Form, Input, Modal, Select, Tooltip, message } from "antd";
-import { CloudUpload, CloudDownload, RefreshCw, Unlink, FolderOpen, DatabaseBackup, ArchiveRestore, Copy, QrCode, Monitor } from "lucide-react";
+import { CloudUpload, CloudDownload, RefreshCw, Unlink, FolderOpen, DatabaseBackup, ArchiveRestore, Copy, QrCode, Monitor, DatabaseZap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { api } from "../../lib/api";
 import { useSession } from "../../lib/session";
+import { EDITION_NAMES, editionOf, linkedEdition } from "../../lib/edition";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
@@ -14,6 +15,7 @@ import { Card, ICON, ICON14, Note, Version } from "../../components/blocks";
 import { faDigits } from "@shared/format";
 
 function size(n: number) {
+  if (n > 1e9) return `${faDigits((n / 1e9).toFixed(2))} گیگابایت`;
   if (n > 1e6) return `${faDigits((n / 1e6).toFixed(1))} مگابایت`;
   return `${faDigits(Math.round(n / 1e3))} کیلوبایت`;
 }
@@ -30,6 +32,7 @@ export default function Desktop() {
   const saveSettings = useAction((v: any) => api.patch("/local/settings", v), { success: "ذخیره شد؛ تغییر شبکه پس از اجرای دوباره‌ی برنامه اعمال می‌شود", invalidate: [["local-settings"], ["local-info"]] });
   const syncNow = useAction(() => api.post("/local/sync"), { success: "همگام‌سازی انجام شد", invalidate: [["local-info"], ["local-sync"]] });
   const unlink = useAction(() => api.post("/local/cloud/unlink"), { success: "اتصال قطع شد", invalidate: [["local-info"]] });
+  const compact = useAction(() => api.post("/local/maintenance/compact"), { onSuccess: () => { n.ok("فشرده‌سازی در اجرای دوبارهٔ برنامه انجام می‌شود"); window.itsm?.relaunch?.(); } });
   const [qr, setQr] = useState<string | null>(null);
   const [link, setLink] = useState(false);
 
@@ -38,19 +41,21 @@ export default function Desktop() {
       <div>
         <PageHeader title="نسخهٔ ویندوز" />
         <Card>
-          <EmptyState icon={Monitor} title="این بخش مخصوص نسخهٔ ویندوز است" description="پشتیبان‌گیری، حالت شبکه و هم‌گامی با نسخهٔ وب در برنامهٔ ویندوز تنظیم می‌شوند." />
+          <EmptyState icon={Monitor} title="این بخش مخصوص نسخهٔ ویندوز است" description={`پشتیبان‌گیری، حالت شبکه و هم‌گامی با ${EDITION_NAMES[editionOf(meta)]} در برنامهٔ ویندوز تنظیم می‌شوند.`} />
         </Card>
       </div>
     );
   const d = info.data;
   const lanUrl = d?.lan?.addresses?.[0] ? `http://${d.lan.addresses[0]}:${d.lan.port}` : null;
   const linked = !!d?.cloud?.linked;
+  // what the link reaches: the web version or the organisation's server edition (the labels before a link stay as they are)
+  const to = linked ? linkedEdition(d?.cloud) : "web";
   return (
     <div>
       <PageHeader title="نسخهٔ ویندوز" subtitle={d ? <span>نسخهٔ <Version v={d.version} />، {d.computer}</span> : null} />
       <div className="blk-cols grid items-start gap-4 xl:grid-cols-2">
         <Card
-          title="هم‌گامی با نسخهٔ وب"
+          title={`هم‌گامی با ${EDITION_NAMES[to]}`}
           meta={
             <span className="inline-flex items-center gap-2 blk-meta">
               <i className="ds-nuqta" data-live={linked ? "" : undefined} style={linked ? undefined : { color: "var(--ds-text-3)" }} aria-hidden />
@@ -62,7 +67,7 @@ export default function Desktop() {
             <>
               <dl className="blk-dl">
                 <div className="is-wide">
-                  <dt>نسخهٔ وب</dt>
+                  <dt>{EDITION_NAMES[to]}</dt>
                   <dd><bdi dir="ltr" className="ds-latin">{d.cloud.url}</bdi></dd>
                 </div>
                 <div>
@@ -92,7 +97,7 @@ export default function Desktop() {
                   danger
                   icon={<Unlink {...ICON} />}
                   onClick={async () => {
-                    if (await n.confirm("قطع اتصال از نسخهٔ وب؟", "داده‌های این رایانه می‌مانند ولی دیگر با وب هم‌گام نمی‌شوند.", true)) unlink.mutate(undefined);
+                    if (await n.confirm(`قطع اتصال از ${EDITION_NAMES[to]}؟`, `داده‌های این رایانه می‌مانند ولی دیگر با ${to === "server" ? "سرور سازمان" : "وب"} هم‌گام نمی‌شوند.`, true)) unlink.mutate(undefined);
                   }}
                 >
                   قطع اتصال
@@ -189,6 +194,50 @@ export default function Desktop() {
             </div>
           ) : null}
         </Card>
+
+        {d && !d.database ? null : (
+        <Card
+          title="نگهداری پایگاه داده"
+          tools={
+            d?.database ? (
+              <Button
+                size="small"
+                icon={<DatabaseZap {...ICON14} />}
+                loading={compact.isPending}
+                disabled={!!d.database.requested}
+                onClick={async () => {
+                  if (await n.confirm("فشرده‌سازی پایگاه داده؟", "برنامه دوباره اجرا می‌شود و پیش از باز شدن، فضایی را که داده‌های پاک‌شده روی دیسک گرفته‌اند آزاد می‌کند؛ بسته به حجم پایگاه داده ممکن است چند دقیقه طول بکشد.", false)) compact.mutate(undefined);
+                }}
+              >
+                فشرده‌سازی
+              </Button>
+            ) : null
+          }
+        >
+          {d?.database ? (
+            <>
+              <dl className="blk-dl">
+                <div>
+                  <dt>حجم پایگاه داده</dt>
+                  <dd className="ds-num">{d.database.db_bytes ? size(d.database.db_bytes) : "—"}</dd>
+                </div>
+                <div>
+                  <dt>آخرین بررسی</dt>
+                  <dd>{d.database.looked_at ? <JDateTime v={d.database.looked_at} /> : "—"}</dd>
+                </div>
+                <div>
+                  <dt>آخرین فشرده‌سازی</dt>
+                  <dd>{d.database.compacted_at ? <JDateTime v={d.database.compacted_at} /> : "—"}</dd>
+                </div>
+              </dl>
+              {d.database.requested ? <Note className="mt-4">فشرده‌سازی در اجرای بعدی برنامه انجام می‌شود.</Note> : null}
+              {d.database.pending?.length ? <Note tone="warning" className="mt-4">فضای خالی دیسک برای فشرده‌سازی همهٔ جدول‌ها کافی نبود؛ باقی‌مانده در اجرای بعدی انجام می‌شود.</Note> : null}
+            </>
+          ) : (
+            <Skeleton rows={3} />
+          )}
+        </Card>
+        )}
 
         <Card title="دربارهٔ این نصب">
           {d ? (

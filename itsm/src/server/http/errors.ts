@@ -19,7 +19,59 @@ export const notFound = (message = "مورد خواسته‌شده پیدا نش
 export const conflict = (message: string, details?: unknown) => new AppError(409, "conflict", message, details);
 export const tooMany = (message = "تلاش‌های زیادی انجام شد؛ چند دقیقه بعد دوباره امتحان کنید") => new AppError(429, "rate_limited", message);
 
-/** Persian message for a database error (unique violation, etc.). */
+/**
+ * The mark src/server/db/postgres.ts puts on every error that leaves it: a Node socket code (ECONNRESET…) is the
+ * database's only then — the same codes from an outbound HTTP call are not.
+ */
+const DB_ERROR = Symbol.for("itsm.db-error");
+
+/** Node socket codes: the database connection failed (only on an error marked by postgres.ts). */
+const SOCKET_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE", "EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN"]);
+/** postgres.js' codes for a connection that could not be made or was lost, and the server shutting down. */
+const CONNECTION_CODES = new Set(["CONNECT_TIMEOUT", "CONNECTION_CLOSED", "CONNECTION_ENDED", "CONNECTION_DESTROYED", "57P01", "57P02", "57P03"]);
+/** Supavisor's FATAL XX000 answers (any case, with or without its «(ECODE)» prefix): no backend could be had… */
+const POOLER_BUSY = /unable to check out (a )?connection|failed to check out a connection|pool checkout failed|max client connections reached|max clients reached in session mode/i;
+/** …or the backend it held went away. */
+const POOLER_GONE = /connection to database closed|DbHandler exited|pool terminating/i;
+
+/** The database cannot do this now: 503 with the seconds after which to try again (null: retrying will not help). */
+function dbUnavailable(code: string, message: string, retryAfterS: number | null, dbCode: string): AppError {
+  return new AppError(503, code, message, retryAfterS === null ? { db_code: dbCode } : { retry_after_s: retryAfterS, db_code: dbCode });
+}
+
+const dbBusy = (c: string) => dbUnavailable("db_busy", "سامانه اکنون بیش از حد مشغول است و اتصالی به پایگاه داده آزاد نشد؛ چند ثانیهٔ دیگر دوباره امتحان کنید", 5, c);
+// a statement cancelled (57014) or a transaction ended (25P03) saved nothing, but one given up on the client (DB_TIMEOUT:
+// no answer in 35 s) may follow work the server did — an autocommit write, a COMMIT whose answer was lost — so the
+// person checks before saving again (like the request deadline's `timeout`, src/server/cloud.ts)
+const dbTimeout = (c: string) =>
+  dbUnavailable("db_timeout", "پایگاه داده در زمان مجاز پاسخ نداد؛ چند لحظهٔ دیگر دوباره امتحان کنید. اگر چیزی ذخیره می‌کردید، پیش از تکرار صفحه را تازه کنید تا ببینید ذخیره شده است یا نه", 5, c);
+const dbLocked = (c: string) => dbUnavailable("db_locked", "داده‌ای که این کار لازم دارد اکنون در دست کار دیگری است؛ چند لحظهٔ دیگر دوباره امتحان کنید", 3, c);
+const dbGone = (c: string) => dbUnavailable("db_unavailable", "ارتباط با پایگاه داده برقرار نشد یا قطع شد؛ چند لحظهٔ دیگر دوباره امتحان کنید", 5, c);
+const dbReadOnly = (c: string) =>
+  dbUnavailable("db_read_only", "پایگاه داده اکنون فقط‌خواندنی است (معمولاً چون فضای دیسک یا طرح Supabase پر شده است)؛ تا مدیر سامانه فضا آزاد نکند، ثبت و ویرایش ممکن نیست", null, c);
+
+/**
+ * A database that is busy, slow, locked, gone or read-only (the web version behind Supabase's pooler bounds every wait:
+ * src/server/cloud.ts webPoolOptions): a 503 the person can act on instead of a 500. `db_code` is what the database or
+ * the driver said — Supavisor's own «(ECODE)» when it gave one.
+ */
+function dbUnavailableMessage(err: { code?: string; message?: string }, marked: boolean): AppError | null {
+  const code = String(err.code);
+  if (code === "QUEUE_TIMEOUT" || code === "53300" || code === "53200") return dbBusy(code);
+  if (code === "57014" || code === "DB_TIMEOUT" || code === "25P03") return dbTimeout(code);
+  if (code === "55P03") return dbLocked(code);
+  if (code === "25006" || code === "53100") return dbReadOnly(code);
+  if (CONNECTION_CODES.has(code) || /^08[0-9A-Z]{3}$/.test(code) || (marked && SOCKET_CODES.has(code))) return dbGone(code);
+  if (code === "XX000" || marked) {
+    const text = String(err.message ?? "");
+    const own = /^\((E[A-Z0-9_]+)\)/.exec(text)?.[1] ?? code;
+    if (POOLER_BUSY.test(text)) return dbBusy(own);
+    if (POOLER_GONE.test(text)) return dbGone(own);
+  }
+  return null;
+}
+
+/** Persian message for a database error (unique violation, a busy, slow or unreachable database, etc.). */
 export function dbErrorMessage(e: unknown): AppError | null {
   const err = e as { code?: string; constraint?: string; detail?: string; message?: string; column?: string };
   if (!err || typeof err !== "object" || !err.code) return null;
@@ -44,7 +96,7 @@ export function dbErrorMessage(e: unknown): AppError | null {
     case "40P01":
       return new AppError(503, "retry", "سیستم مشغول است؛ دوباره امتحان کنید");
     default:
-      return null;
+      return dbUnavailableMessage(err, DB_ERROR in err);
   }
 }
 

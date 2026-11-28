@@ -24,6 +24,7 @@ import {
 import { FieldPreview } from "./Preview";
 import { SettingsEditor } from "./SettingsEditor";
 import { F, I16, useCloseGuard, useSheetSize } from "./parts";
+import { sameLabelFields } from "./labels";
 import { UsageList } from "./Usage";
 
 export interface FieldSheetProps {
@@ -67,6 +68,8 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
   // the group of sensitivity of a field on tables is the tables' to change (`settings` edit, F1's rule)
   const groupLocked = used && !!entry?.usage.tables.length && !access.settingsEdit;
   const choiceFields = library.filter((f) => f.id !== id && (f.storage === "choice" || f.storage === "multichoice"));
+  // the label another library field carries: a warning, never a refusal (./labels.ts)
+  const twins = sameLabelFields(library, d?.label ?? "", id);
   const set = (p: Partial<FieldDraft>) => setD((x) => (x ? { ...x, ...p } : x));
 
   const after = async (newId: string) => {
@@ -164,7 +167,7 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
           <section className="wff-sec" aria-labelledby={`${idp}-base`}>
             <h3 id={`${idp}-base`}>پایه</h3>
             <div className="wff-grid">
-              <F label="برچسب" htmlFor={`${idp}-label`} error={errors.label}>
+              <F label="برچسب" htmlFor={`${idp}-label`} error={errors.label} hint={twins.length ? <SameLabel twins={twins} /> : undefined}>
                 <Input id={`${idp}-label`} value={draft.label} onChange={(e) => set({ label: e.target.value })} maxLength={80} disabled={readOnly} autoFocus={!id} />
               </F>
               <F label="نام فنی" htmlFor={`${idp}-name`} error={errors.name} hint={used ? "پس از نخستین کاربرد تغییر نمی‌کند" : "در API، گزارش‌ها و ورود از اکسل"}>
@@ -267,5 +270,21 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
         </div>
       )}
     </Drawer>
+  );
+}
+
+/** «همین برچسب را فیلد u_… هم دارد…»: the label another library field carries, said under it — a warning, never a refusal. */
+export function SameLabel({ twins }: { twins: readonly LibraryEntry[] }) {
+  return (
+    <span className="wff-warn" role="status">
+      همین برچسب را {twins.length > 1 ? "فیلدهای" : "فیلد"}{" "}
+      {twins.map((x, i) => (
+        <span key={x.id}>
+          {i ? "، " : ""}
+          <bdi className="ds-id">{x.name}</bdi>
+        </span>
+      ))}{" "}
+      هم {twins.length > 1 ? "دارند" : "دارد"}؛ ذخیره می‌شود، ولی در فرم‌ها فقط با نام فنی از هم جدا می‌شوند.
+    </span>
   );
 }

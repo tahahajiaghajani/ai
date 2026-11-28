@@ -16,13 +16,17 @@
 //     the authority applies them (§3.6.4) and writes the result.
 //   · process_draft (area `work`, never synchronised) — a person's unsent values of a step or a start.
 // Access: §6 — designers and publishers hold `process_design`, never `process`, so they never read cases; cases are
-// read by their requester, participants and managers (F4b's participant sources) and by area grants in `process`
-// (auditor, tenant admin), and a confidential case only by the first three (`rowAccess.read` below). Tasks,
+// read by their requester, participants (with the people a notice of the workflow named, `notified`) and managers
+// (F4b's participant sources) and by area grants in `process` (auditor, tenant admin), and a confidential case only by
+// the first three (`rowAccess.read` below). Tasks,
 // submissions and drafts are rows of their own people (row rules). Every field the authority keeps is `system`, so
 // the generic API never takes it from a caller; F4b adds the guards that refuse every other write (§6.4). Audit: the
 // engine's history on the definition tables and the decision rows; none on cases (it would show values a step
 // hides, §3.6.7), drafts or the timer columns. Sync: every table but process_draft is synced (SYNC_PROTOCOL 17 of
-// the F release covers the new kinds); replicas create submissions, never cases, tasks or versions (§7). Demo data:
+// the F release covers the new kinds); replicas create submissions, never cases, tasks or versions (§7) — so a
+// column the authority alone writes (1.1.5's `notified`) needs no new protocol: a linked app on an older schema
+// drops it when it applies a pull (sync/apply.ts writes only the columns it has) and reads the people it names
+// through `participants`, which it knows. Demo data:
 // nothing special — id and org_id, so the demo capture trigger records and purges the pack's rows.
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
@@ -179,8 +183,13 @@ const processCase: TableDef = {
     { name: "state", label: "وضعیت", type: "choice", choices: CASE_STATES, default: "active", system: true, list: true, filter: true, index: true, span: 8 },
     { name: "requested_by", label: "ثبت‌کننده", type: "user", system: true, list: true, filter: true, span: 8, section: "افراد" },
     { name: "requested_for", label: "درخواست برای", type: "user", system: true, filter: true, span: 8, section: "افراد" },
-    // the people of open tasks (assignee, delegated from) and of done ones (actor, acted for) — kept by the authority
+    // the people of open tasks (assignee, delegated from) and of done ones (actor, acted for), and those `notified`
+    // names — kept by the authority
     { name: "participants", label: "مشارکت‌کنندگان", type: "users", system: true, hidden: true, audit: false, index: true, section: "افراد" },
+    // the people a notice of the workflow named who did not read the case otherwise (an escalation's manager or
+    // «گزارش به» holder, the people of an «اعلان» step, administrators told of a step without people): they read it
+    // from then on, like a watch list, as `participants` (release 1.1.5, process/engine/readers.ts)
+    { name: "notified", label: "باخبرشدگان", type: "users", system: true, hidden: true, audit: false, section: "افراد" },
     { name: "managers", label: "مسئولان", type: "users", system: true, hidden: true, audit: false, index: true, section: "افراد" },
     { name: "manager_groups", label: "گروه‌های مسئول", type: "refs", ref: "group", system: true, hidden: true, audit: false, index: true, section: "افراد" },
     // [{ key, label }] of the steps open now; open_rounds: { [step key]: round }; progress: `CaseProgress`

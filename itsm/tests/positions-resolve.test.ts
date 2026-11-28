@@ -418,4 +418,11 @@ describe("the preview and estimate API", () => {
     expect(est.total).toBeNull();
     expect(est.warnings).toEqual(["تا ۱۰۴ نفر انجام‌دهندهٔ این مرحله می‌شوند؛ بیش از ۵۰ نفر که باشند مرحله منتظر می‌ماند تا مسئولان گردش‌کار برگزینند"]);
   });
+
+  it("words «واحد درخواست‌دهنده» apart from «نزدیک‌ترین واحد بالادست»: only the holder of the requester's own unit takes it", async () => {
+    // (1.1.5, RC1: the line read like the nearest unit up's, while a requester in a unit under the branch finds nobody)
+    const line = async (rule: Record<string, unknown>) => (await e.owner.post(`${P}/positions/estimate`, { step: { assignees: [rule] }, action: "fill" })).rules[0].line;
+    expect(await line({ kind: "position", position: "branch_head", where: "requester_unit" })).toBe("۲ نفر در ۲ شعبه؛ برای هر پرونده فقط «رئیس شعبه» خودِ واحد درخواست‌دهنده");
+    expect(await line({ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch" })).toBe("۲ نفر در ۲ شعبه؛ برای هر پرونده «رئیس شعبه» همان شعبه");
+  });
 });

@@ -11,23 +11,27 @@
 //   · «لغو پرونده» (`cancelAsManager`): the case closes «لغوشده», its open tasks «لغو», and its run stops.
 // Both are journaled and recorded in «گزارش رویدادها»; both need the case's managers (named, or through a group). A
 // case that names no manager falls to the organisation's administrators (owners, «مدیر» members, holders of «مدیر
-// سامانه», or of `process_design` approve to act): they are told, and they resume or cancel it.
-import { grantIn } from "@shared/access";
+// سامانه», or of `process_design` approve to act): they are told, and they resume or cancel it. Each runs as the case's
+// work (../engine/boundary.ts, 1.1.5): inside the demo pack's scope for a case of the pack's, outside it for any other;
+// one of the pack's people named a manager of an organisation's own case is refused there (FINAL-1's `demoRealWork`).
 import { processNodeLabel, restartTargets } from "@shared/process/graph";
 import type { Ctx, ServerConfig } from "../../../context";
 import type { Queryable, Tx } from "../../../db";
-import { subjectOf } from "../../../access";
 import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { isSystemCtx, onRecordEvent, systemCtx, updateIn } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import { startRun } from "../../flows";
 import { audit } from "../../data/crud";
 import { notifyPeople } from "../../notify/deliver";
-import { OPEN_STATES, participantsOf, processesRunHere, refreshCase } from "../engine";
+import { OPEN_STATES, processesRunHere, refreshCase } from "../engine";
+import { inCaseScope, packOnRealCase } from "../engine/boundary";
 import { caseJournal } from "../engine/journal";
+import { participantsFor } from "../engine/progress";
+import { tellCase } from "../engine/readers";
 import { caseTasks, isId, loadVersionInfo, lockCase, type CaseRow } from "../engine/store";
-import { myGroupsSql } from "../access/sources";
-import { caseManagers } from "../timers/timer";
+import { caseManagers, titled } from "../timers/timer";
+import { demoRealWork } from "../../positions";
+import { actingManagers, managesCase, namedManager } from "../api/common";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -44,15 +48,6 @@ async function orgAdmins(q: Queryable, orgId: string): Promise<string[]> {
   return rows.map((r) => String(r.user_id));
 }
 
-/** May the caller act for an organisation's administrators (owner, «مدیر», or `process_design` approve)? */
-function administers(ctx: Ctx): boolean {
-  if (ctx.member?.role === "owner" || ctx.member?.role === "admin") return true;
-  try {
-    return grantIn(subjectOf(ctx).eff, "process_design").approve === true;
-  } catch {
-    return false;
-  }
-}
 
 /** The run of a case failed (or was canceled while the case was open): «نیاز به بررسی». */
 export async function caseRunFailed(cfg: ServerConfig, orgId: string, caseId: string, data: Record<string, unknown>): Promise<void> {
@@ -69,41 +64,36 @@ export async function caseRunFailed(cfg: ServerConfig, orgId: string, caseId: st
     }
     const version = await loadVersionInfo(tx, orgId, kase.version_id);
     if (version) await refreshCase(tx, sys, kase, version.graph, { tasks, set: { state: "attention" } });
-    else await updateIn(tx, sys, "process_case", caseId, { state: "attention", participants: participantsOf(tasks), current_steps: [], open_rounds: {} }, { trusted: true });
+    else await updateIn(tx, sys, "process_case", caseId, { state: "attention", participants: await participantsFor(tx, kase, tasks), current_steps: [], open_rounds: {} }, { trusted: true });
     const error = String(data.error ?? "").trim().slice(0, 1000) || "خطای ناشناخته";
     await caseJournal(tx, sys, kase, `اجرای پرونده متوقف شد و پرونده نیاز به بررسی دارد: ${error}`, { data: { run: data.run_id, error } });
-    // a case that names no manager: the organisation's administrators are told instead
-    const managers = hasManagers(kase) ? await caseManagers(tx, kase) : await orgAdmins(tx, orgId);
-    if (managers.length) {
+    // a case that names no manager — or, of the organisation's own, only the demo pack's people — the organisation's
+    // administrators are told instead; those who may be told, made readers of the case first (engine/readers.ts: an
+    // administrator of a confidential case reads it only so)
+    const acting = { ...kase, ...(await actingManagers(tx, orgId, kase)) };
+    const managers = hasManagers(acting) ? await caseManagers(tx, acting) : await orgAdmins(tx, orgId);
+    const told = (await tellCase(tx, sys, kase, managers)).told;
+    if (told.length) {
       await notifyPeople(tx, orgId, {
-        table: "process_case", id: kase.id, users: managers, event: "custom", label: "پرونده متوقف شد", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
+        table: "process_case", id: kase.id, users: told, event: "custom", label: "پرونده متوقف شد", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
         subject: ["پروندهٔ", kase.number, "متوقف شد"].filter(Boolean).join(" "),
-        body: `پروندهٔ «${kase.title ?? ""}» در «${kase.process_name ?? ""}» متوقف شد: ${error}. آن را از مرحله‌ای ادامه دهید یا لغو کنید.`,
+        body: `پروندهٔ${titled(kase) || ` ${kase.number ?? ""}`} در «${kase.process_name ?? ""}» متوقف شد: ${error}. آن را از مرحله‌ای ادامه دهید یا لغو کنید.`,
       });
     }
   });
 }
 
-/**
- * Is the caller one of the case's process managers (named, or a valid member of a manager group)? A case that names
- * none is the organisation's administrators' to manage.
- */
-async function managesCase(tx: Tx, ctx: Ctx, kase: CaseRow): Promise<boolean> {
-  if (isSystemCtx(ctx)) return true;
-  if (!hasManagers(kase)) return administers(ctx);
-  const me = ctx.user.id;
-  if ((kase.managers ?? []).includes(me)) return true;
-  if (!(kase.manager_groups ?? []).length) return false;
-  const r = await tx.one<{ ok: boolean }>(`select coalesce($1::jsonb ?| ${myGroupsSql("$2::uuid")}, false) as ok`, [JSON.stringify(kase.manager_groups), me]);
-  return r?.ok === true;
-}
-
 const NOT_MANAGER = "این کار با مسئولان این گردش‌کار است";
 
-/** Lock a case for a manager's action (404 for a case the caller does not manage, as for one they cannot see). */
+/**
+ * Lock a case for a manager's action: its process managers (named, or a valid member of a manager group; a case that
+ * names none is the organisation's administrators' to manage — the same rule as F4c's, ../api/common.ts), never one of
+ * the demo pack's people on a case of the organisation's own (FINAL-1's refusal).
+ */
 async function managedCase(tx: Tx, ctx: Ctx, caseId: string): Promise<CaseRow> {
   const kase = isId(caseId) ? await lockCase(tx, ctx.org.id, caseId) : null;
   if (!kase) throw notFound("پرونده پیدا نشد");
+  if ((await packOnRealCase(tx, ctx, kase.id)) && (await namedManager(tx, ctx, kase))) throw demoRealWork(403);
   if (!(await managesCase(tx, ctx, kase))) throw forbidden(NOT_MANAGER);
   return kase;
 }
@@ -112,7 +102,7 @@ async function managedCase(tx: Tx, ctx: Ctx, caseId: string): Promise<CaseRow> {
 export async function resumeFromStep(ctx: Ctx, caseId: string, node: string, input: { comment?: string | null } = {}): Promise<{ run: string }> {
   if (!(await processesRunHere(ctx.cfg, ctx.org.id))) throw conflict("این کار به اتصال نیاز دارد");
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
-  return sys.write(async (tx) => {
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () => sys.write(async (tx) => {
     const kase = await managedCase(tx, ctx, caseId);
     if (kase.state !== "attention") throw conflict("فقط پرونده‌ای که متوقف شده است از مرحله‌ای دوباره ادامه می‌یابد");
     const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
@@ -136,14 +126,14 @@ export async function resumeFromStep(ctx: Ctx, caseId: string, node: string, inp
     await caseJournal(tx, sys, kase, `${who} پرونده را از مرحلهٔ «${label}» ادامه داد${comment ? `: ${comment}` : ""}`, { author: isSystemCtx(ctx) ? null : ctx.user.id, data: { from: node, run: runId } });
     if (!isSystemCtx(ctx)) await audit(tx, ctx, "process.resume_from", "process_case", kase.id, `${kase.number ?? ""}: ادامه از «${label}»`, { node, run: runId });
     return { run: runId };
-  });
+  }));
 }
 
 /** «لغو پرونده» by a process manager: any open case, whatever was done in it. */
 export async function cancelAsManager(ctx: Ctx, caseId: string, input: { comment?: string | null } = {}): Promise<void> {
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   if (!(await processesRunHere(ctx.cfg, ctx.org.id))) throw conflict("این کار به اتصال نیاز دارد");
-  await sys.write(async (tx) => {
+  await inCaseScope(ctx.db, ctx.org.id, caseId, () => sys.write(async (tx) => {
     const kase = await managedCase(tx, ctx, caseId);
     if (!OPEN_STATES.has(kase.state)) throw conflict("این پرونده پیش‌تر بسته شده است");
     const comment = String(input.comment ?? "").trim().slice(0, 1000);
@@ -157,13 +147,13 @@ export async function cancelAsManager(ctx: Ctx, caseId: string, input: { comment
     const set = { state: "canceled", outcome: "canceled", ended_at: now };
     const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
     if (version) await refreshCase(tx, sys, kase, version.graph, { tasks, set });
-    else await updateIn(tx, sys, "process_case", kase.id, { ...set, participants: participantsOf(tasks), current_steps: [], open_rounds: {} }, { trusted: true });
+    else await updateIn(tx, sys, "process_case", kase.id, { ...set, participants: await participantsFor(tx, kase, tasks), current_steps: [], open_rounds: {} }, { trusted: true });
     const who = isSystemCtx(ctx) ? "سامانه" : ctx.user.full_name || ctx.user.email;
     await caseJournal(tx, sys, kase, `${who} (مسئول گردش‌کار) پرونده را لغو کرد: ${comment}`, { author: isSystemCtx(ctx) ? null : ctx.user.id, data: { manager: true } });
     if (!isSystemCtx(ctx)) await audit(tx, ctx, "process.cancel", "process_case", kase.id, `${kase.number ?? ""}: لغو به دست مسئول گردش‌کار`, { comment });
     // the run stops after this commits (a failed run has ended already)
     if (kase.run_ref) await enqueue(tx, { kind: "process.cancel_run", orgId: ctx.org.id, payload: { run: kase.run_ref }, dedupeKey: `process.cancel_run:${kase.run_ref}`, maxAttempts: 10 });
-  });
+  }));
 }
 
 let installed = false;

@@ -473,6 +473,22 @@ export function installDirectoryJobs(): void {
       await fail(String((e as Error).message ?? e));
     }
     return { again: Number(src.schedule_hours) * HOUR };
+  }, {
+    // its last attempt did not finish (its worker stopped during a large directory): the run is recorded «failed», the
+    // source shows it (its admins are told, as for any failed run) and the schedule goes on at its interval — the only
+    // other re-arm is a manual «اعمال»
+    onExhausted: async (job, ectx) => {
+      if (!job.org_id) return;
+      const cfg = ectx.cfg as ServerConfig;
+      const sys = await systemCtx(cfg, job.org_id);
+      const src = await liveRow(cfg.db, sys, "directory_source", job.payload.id);
+      if (!src) return;
+      const scheduled = src.active !== false && src.kind === "ldap" && src.mode === "apply" && Number(src.schedule_hours ?? 0) > 0;
+      const next = scheduled ? new Date(Date.now() + Number(src.schedule_hours) * HOUR).toISOString() : null;
+      await storeRun(sys, String(src.id), "apply", null, "failed", ectx.error);
+      await markSource(sys, src, { health: "failing", last_run_at: new Date().toISOString(), last_summary: ectx.error.slice(0, 2000), ...(next ? { next_run_at: next } : {}) }, ectx.error);
+      if (next) await sys.write((tx) => enqueue(tx, { kind: "integration.directory.sync", orgId: job.org_id!, payload: { id: src.id }, runAt: next, dedupeKey: `directory:${src.id}`, maxAttempts: 2 }));
+    },
   });
 }
 

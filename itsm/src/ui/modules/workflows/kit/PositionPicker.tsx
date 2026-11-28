@@ -1,8 +1,8 @@
 // `PositionPicker` (design F §3.1, §3.4): choose an organisational role «نقش سازمانی». A «نقش سازمانی» field of a
 // record or a form stores the position's id (`by="id"`, its widget `position`); an assignee rule names the position by
 // its key (`by="key"`). Searchable by name or key; each option shows where the role is held («در شعبه‌ها») and its
-// key (LTR). Inactive positions are not offered (a current value stays, marked). A server without positions shows a
-// quiet disabled box.
+// key (LTR). Inactive positions are not offered (a current value stays, marked); the demo pack's are marked «نمایشی»
+// (the list's own mark, release 1.1.5). A server without positions shows a quiet disabled box.
 import { useMemo, useState } from "react";
 import { Select } from "antd";
 import { useQuery } from "@tanstack/react-query";
@@ -13,10 +13,12 @@ import { useDebounced } from "../../../lib/hooks";
 import { Loader } from "../../../components/display";
 import { useSchema } from "../../../records/data/hooks";
 import { kitApi, type PositionRow } from "./api";
+import { DemoTag } from "./demo";
 
 export interface PositionPickerProps {
   value: string | string[] | null | undefined;
-  onChange: (v: string | string[] | null) => void;
+  /** `picked`: the chosen positions themselves (their id, key and the kind of unit they are held in) */
+  onChange: (v: string | string[] | null, picked?: PositionRow[]) => void;
   /** what the value holds: the position's id (a field) or its key (an assignee rule) */
   by?: "id" | "key";
   multiple?: boolean;
@@ -82,8 +84,9 @@ export function PositionPicker({ value, onChange, by = "id", multiple, onPick, f
       notFoundContent={list.isFetching ? <div className="grid place-items-center py-3"><Loader /></div> : <div className="py-2 text-center text-ink-3">نقشی پیدا نشد</div>}
       onChange={(v) => {
         const picked = asList(v as string | string[] | undefined);
-        onChange(multiple ? picked : (picked[0] ?? null));
-        onPick?.(rows.filter((p) => picked.includes(keyOf(p))));
+        const chosen = rows.filter((p) => picked.includes(keyOf(p)));
+        onChange(multiple ? picked : (picked[0] ?? null), chosen);
+        onPick?.(chosen);
       }}
       options={options}
       optionRender={(o) => {
@@ -94,6 +97,7 @@ export function PositionPicker({ value, onChange, by = "id", multiple, onPick, f
               <span className="rk-opt-t">
                 {p.name}
                 {p.active ? null : <span className="rk-me">غیرفعال</span>}
+                {p.demo ? <DemoTag title="نقش سازمانی دادهٔ نمایشی" /> : null}
               </span>
               <span className="rk-opt-s">
                 {heldIn(p.unit_kind)} ·{" "}

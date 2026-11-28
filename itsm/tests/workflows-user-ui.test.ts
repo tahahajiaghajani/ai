@@ -15,8 +15,13 @@
 // case gets an empty «پرونده‌ها» — and the review's
 // cases: a case's files open by name from «داده‌ها», «آنچه پیش‌تر ثبت شده» and the step form; «امروز» in «پرونده‌ها»
 // finds today's cases; a start sent again after its answer was lost opens one case; the portal's «کارهای من» counts and
-// lists the steps waiting for the person.
+// lists the steps waiting for the person — and release 1.1.5: a step nobody took says why to the case's managers, who
+// run its rules again («دوباره پیدا کردن انجام‌دهنده», this version's or the current one's) and choose among too many;
+// «نقش شما» names the manager (B3); the demo pack's cases say «نمایشی» and a real case's pickers leave its people out;
+// a whole row of «کارتابل» opens the step (B5); the «توضیح» hint names only the step's own decisions (B6).
 import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, matchRoutes } from "react-router";
@@ -30,25 +35,31 @@ import type { FormLayoutV2, Right } from "@shared/forms/layout";
 import type { FormsSnapshot } from "@shared/forms/snapshot";
 import { DEFAULT_TIMEZONE } from "@shared/constants";
 import { localDate } from "@shared/model/jalali-buckets";
-import { STEP_STATUS } from "../src/ui/modules/workflows/kit/model";
+import { STEP_STATUS, statusLine, stepCounter } from "../src/ui/modules/workflows/kit/model";
+import { StepLegend, usedStatuses } from "../src/ui/modules/workflows/kit/StepLegend";
+import { withUnstaffed } from "@shared/process";
 import { fileIds } from "../src/ui/modules/workflows/kit/files";
 import { ROUTES, NAV } from "../src/ui/modules/registry";
 import { userPart } from "../src/ui/modules/workflows/user/routes";
 import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, type InboxRow, type MyStep, type StepView } from "../src/ui/modules/workflows/user/api";
 import {
-  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, caseFiltersOf, caseIdHolder, caseStateView, consequence,
-  defaultReturn, delegationNote,
-  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, managerForm, mapLink, missingRequired, myPart, newCaseId, openSteps, packShown, packValues,
-  processMarks,
-  resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
-  withCaseFilter,
+  CASE_PATH, FORM_COLUMNS, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, candidatesOf, caseFiltersOf, caseIdHolder, caseStateView,
+  commentHint, consequence, defaultReturn, delegationNote, demoPick,
+  draftValues, dueView, fieldProblems, filtered, formFieldSpan, headerStep, inboxRowProps, inboxRowView, initialValues, managerForm, mapLink, missingRequired, myPart, newCaseId, openSteps, packShown,
+  packValues, processMarks, reresolveForm, reresolveMessage,
+  resultMessage, rowLink, sendLabel, stalledSteps, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingLine, waitingSteps, waitingText,
+  wfPaths, withCaseFilter,
 } from "../src/ui/modules/workflows/user/model";
+import type { StepWaiting } from "@shared/process/waiting";
 import { CaseValues, ProcessForm } from "../src/ui/modules/workflows/user/parts";
 import PortalSteps from "../src/ui/modules/workflows/user/PortalSteps";
 import WorkflowsPage from "../src/ui/modules/workflows/user/WorkflowsPage";
 import { Talk } from "../src/ui/modules/workflows/user/CasePage";
 import { useWaitingSteps } from "../src/ui/modules/workflows/user/waiting";
 import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
+import { SessionProvider } from "../src/ui/lib/session";
+import Help from "../src/ui/modules/settings/Help";
+import { POSITION_WHERE_LABELS } from "@shared/process/assignees";
 import { ApiError, type OrgApi } from "../src/ui/lib/api";
 import type { Schema } from "../src/ui/records/model/schema";
 import type { Client } from "./helpers";
@@ -512,6 +523,36 @@ describe("the step form", () => {
     expect(data()).toContain("۱ پیوست");
     expect(data()).not.toContain("پرونده");
   });
+
+  it("1.1.5: the form's columns follow its own width, not the window's — one field to a row in the case page's side panel and on a phone; a segmented choice wraps inside its field", () => {
+    // the click-through's case: in the side panel (about 430 px of form on a 1440 px screen) two fields shared a row and
+    // «دامنهٔ اجرا»'s four options ran 80–400 px out of the panel; on a phone the 24 columns' gaps alone (23 × 16 px)
+    // were wider than the form
+    const wide = (w: number) => [6, 8, 12, 18, 24].map((span) => formFieldSpan(span, w));
+    expect(wide(396)).toEqual([24, 24, 24, 24, 24]); // the side panel's form
+    expect(wide(324)).toEqual([24, 24, 24, 24, 24]); // a 390 px phone's
+    expect(wide(FORM_COLUMNS.one)).toEqual([12, 12, 12, 18, 24]); // a dialog or a narrow page: at most two to a row
+    expect(wide(FORM_COLUMNS.two - 1)).toEqual([12, 12, 12, 18, 24]);
+    expect(wide(FORM_COLUMNS.two)).toEqual([6, 8, 12, 18, 24]); // the start page on a wide screen: the form's own spans
+    const defs: Record<string, FieldDef> = {
+      ...fields,
+      u_scope: { name: "u_scope", label: "دامنهٔ اجرا", type: "choice", choices: ["فقط شعبهٔ درخواست‌دهنده", "همهٔ شعبه‌های استان", "ستاد و شعبه‌های تهران", "همهٔ واحدهای بانک"].map((label, i) => ({ value: `s${i}`, label })) } as unknown as FieldDef,
+    };
+    const form: FormLayoutV2 = { tabs: [{ label: "فرم", sections: [{ label: null, items: [{ field: "u_need", span: 12 }, { field: "u_scope", span: 12 }] }] }] };
+    const html = render("org-1", createElement(ProcessForm, { layout: form, fields: defs, rights: { u_need: "edit", u_scope: "required" }, values: {}, onChange: () => undefined, schema: {} as Schema, tz: "Asia/Tehran", unit: "rial", idPrefix: "t", label: "فرم" }));
+    // the form is its own container (StepPanel and StartPage both lay a step out with it) and the choice is the kit's segmented control
+    expect(html).toContain('class="rk-form wfu-form"');
+    expect(html).toMatch(/class="[^"]*\brk-seg\b[^"]*"/);
+    // the stylesheet says what formFieldSpan says, at its widths: by the form's container, not by the window (@media)
+    const css = readFileSync(join(__dirname, "../src/ui/modules/workflows/user/user.css"), "utf8").replace(/\s+/g, " ");
+    expect(css).toContain(".wfu-form { container: wfu-form / inline-size; }");
+    const at = (px: number) => `@container wfu-form (max-width: ${px - 0.02}px)`;
+    expect(css).toContain(`${at(FORM_COLUMNS.two)} { .wfu-form .rk-f { grid-column: span max(12, var(--rk-span, 8)); } }`);
+    expect(css).toContain(`${at(FORM_COLUMNS.one)} { .wfu-form .rk-grid { column-gap: 0; } .wfu-form .rk-f { grid-column: 1 / -1; } }`);
+    // a segmented choice wider than its field wraps its options, also where the kit lets segmented controls scroll (a phone)
+    const records = readFileSync(join(__dirname, "../src/ui/records/records.css"), "utf8");
+    expect(records).toContain(".rk-seg.ant-segmented .ant-segmented-group { flex-wrap: wrap; inline-size: auto; }");
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -801,5 +842,211 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     ids.answered();
     expect(ids.take()).not.toBe(first.case);
     await b.w.k.drain();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Release 1.1.5: a step nobody took, the managers' re-resolve, the demo pack's cases (the shared contract
+// @shared/process/waiting; the server's answers mocked as the API gives them)
+
+describe("1.1.5: a case's step that waits, and its managers", () => {
+  const nobody: StepWaiting = {
+    reason: "nobody",
+    message: "برای «مرحلهٔ فرم» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند.",
+    notes: ["«مدیر گروه» در «ادارهٔ کل فناوری اطلاعات» دارنده‌ای ندارد"],
+  };
+  const many: StepWaiting = {
+    reason: "too_many",
+    message: "بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند",
+    notes: [],
+    candidates: [
+      { id: "U-1", name: "علی احمدی", demo: false },
+      { id: "u-negar", name: "نگار کارشناس‌پور", demo: true },
+    ],
+  };
+  const g: ProcessGraph = {
+    nodes: [N("t", "trigger"), N("s", "form_step", { action: "fill", start: true }, "ثبت درخواست"), N("f", "form_step", { action: "fill" }, "مرحلهٔ فرم"), N("a", "form_step", { action: "approve" }, "تأیید")],
+    edges: [E("t", "s"), E("s", "f"), E("f", "a")],
+  };
+  const detailOf = (over: Partial<CaseDetail> = {}) =>
+    ({
+      case: { requested_by: "u-negar", requested_for: null, current_steps: [{ key: "f", label: "مرحلهٔ فرم" }, { key: "a", label: "تأیید" }] },
+      graph: g,
+      history: { tasks: [{ id: "1", step_key: "s", step_label: "ثبت درخواست", action: "fill", status: "done", assigned_to: "u-negar", acted_by: "u-negar", acted_for: null, delegated_from: null }] },
+      my_steps: [],
+      can: { cancel: true, manage: true, pause: true, resume: false, reassign: true, resume_from: false, reresolve: true },
+      waiting: { f: nobody, a: many },
+      ...over,
+    }) as unknown as CaseDetail;
+
+  it("the diagram says «منتظر انجام‌دهنده» of a step that waits with nobody — its node, the legend, the header's channel — never «در جریان»", () => {
+    const shown = withUnstaffed({ t: { status: "done" }, s: { status: "mine_done", outcome: "submitted", round: 1 }, f: { status: "active", waiting: 0, round: 1 }, a: { status: "active", waiting: 2, round: 1 } }, ["f"]);
+    expect(shown.f).toEqual({ status: "unstaffed", waiting: 0, round: 1 });
+    // a step with people stays «در جریان»; a step that is no longer active, or that the graph lacks, is left alone
+    expect(shown.a).toEqual({ status: "active", waiting: 2, round: 1 });
+    expect(withUnstaffed({ f: { status: "done", outcome: "submitted" } }, ["f", "x"])).toEqual({ f: { status: "done", outcome: "submitted" } });
+    expect(STEP_STATUS.unstaffed).toMatchObject({ label: "منتظر انجام‌دهنده", tone: "waiting" });
+    expect(statusLine(shown.f, "form_step")).toBe("منتظر انجام‌دهنده");
+    expect(statusLine(shown.a, "form_step")).toBe("در جریان · ۲ نفر");
+    // the legend lists what the diagram shows: the waiting step, and no «در جریان» where nothing is in progress
+    const legend = renderToStaticMarkup(createElement(StepLegend, { only: usedStatuses(withUnstaffed({ s: { status: "done" }, f: { status: "active", waiting: 0 } }, ["f"])) }));
+    expect(legend).toContain("منتظر انجام‌دهنده");
+    expect(legend).not.toContain("در جریان");
+    // still the case's current step: the header's channel, the phone's «مرحلهٔ ۲ از ۳» and the path taken to it
+    expect(stateChannel(g, shown, false).map((x) => [x.key, x.state])).toEqual([["s", "done"], ["f", "current"], ["a", "current"], ["__end", "future"]]);
+    expect(stepCounter(g, shown)).toEqual({ at: 2, of: 3 });
+    expect(takenFromStatuses(g, shown).has(g.edges.find((e) => e.source === "s" && e.target === "f")!.id)).toBe(true);
+  });
+
+  it("«نقش شما» names the case's manager (B3: the owner read «خواننده» beside the managers' actions)", () => {
+    expect(myPart(detailOf(), "u-owner")).toEqual(["مسئول گردش‌کار"]);
+    expect(myPart(detailOf(), "u-negar")).toEqual(["درخواست‌دهنده", "انجام‌دهنده در «ثبت درخواست»", "مسئول گردش‌کار"]);
+    expect(myPart(detailOf({ can: { ...detailOf().can, manage: false } }), "u-reader")).toEqual([]);
+  });
+
+  it("the managers read the journal's line and why nobody was found; anyone else a few words", () => {
+    expect(waitingLine(nobody, true)).toEqual({ text: nobody.message, notes: nobody.notes });
+    expect(waitingLine(nobody, false)).toEqual({ text: "کسی پیدا نشد", notes: [] });
+    expect(waitingLine(many, false)).toEqual({ text: "مسئولان گردش‌کار انجام‌دهنده را برمی‌گزینند", notes: [] });
+    expect(waitingLine(undefined, true)).toBeNull();
+  });
+
+  it("«دوباره پیدا کردن انجام‌دهنده»: the waiting steps in the case's order; this version's rules first; a live refresh keeps the choice while the step still waits", () => {
+    const d = detailOf();
+    expect(stalledSteps(d)).toEqual([
+      { key: "f", label: "مرحلهٔ فرم", reason: "nobody" },
+      { key: "a", label: "تأیید", reason: "too_many" },
+    ]);
+    const opened = reresolveForm(null, d);
+    expect(opened).toEqual({ step: "f", rules: "case" });
+    const chosen = { step: "a", rules: "current" as const };
+    expect(reresolveForm(chosen, d)).toBe(chosen);
+    // the step found people meanwhile: the dialog moves to the step that still waits, keeping whose rules
+    expect(reresolveForm(chosen, detailOf({ waiting: { f: nobody } }))).toEqual({ step: "f", rules: "current" });
+    expect(reresolveForm(chosen, detailOf({ waiting: {} }))).toEqual({ step: null, rules: "current" });
+    // a case read before 1.1.5's server (no `waiting`): nothing waits
+    expect(stalledSteps(detailOf({ waiting: undefined }))).toEqual([]);
+  });
+
+  it("what came of it: the people found (three named), the managers, or why nobody again", () => {
+    const ok = { status: "ok" as const, people: [{ id: "u1", name: "بهروز مدیرنیا", demo: false }, { id: "u2", name: "نگار کارشناس‌پور", demo: true }], message: null };
+    expect(reresolveMessage(ok, "مرحلهٔ فرم")).toEqual({ tone: "ok", text: "«مرحلهٔ فرم» به بهروز مدیرنیا، نگار کارشناس‌پور رسید." });
+    const five = { ...ok, people: ["الف", "ب", "پ", "ت", "ث"].map((n, i) => ({ id: `u${i}`, name: n, demo: false })) };
+    expect(reresolveMessage(five, "تأیید").text).toBe("«تأیید» به الف، ب، پ و ۲ نفر دیگر رسید.");
+    expect(reresolveMessage({ status: "managers", people: [], message: null }, "تأیید")).toEqual({ tone: "warning", text: "برای «تأیید» کسی پیدا نشد؛ مرحله به مسئولان گردش‌کار رسید." });
+    expect(reresolveMessage({ status: "nobody", people: [], message: nobody.message }, "مرحلهٔ فرم")).toEqual({ tone: "warning", text: nobody.message });
+    expect(reresolveMessage({ status: "nobody", people: [], message: null }, "مرحلهٔ فرم").text).toBe("برای «مرحلهٔ فرم» باز هم کسی پیدا نشد.");
+  });
+
+  it("asks the server for this version's or the current version's rules of a waiting step", async () => {
+    const calls: [string, unknown][] = [];
+    const api = { post: async (path: string, body: unknown) => (calls.push([path, body]), { status: "nobody", people: [], message: null, notes: [] }) } as unknown as OrgApi;
+    const r = await userApi.reresolve(api, "c 1", { step: "f", rules: "current" });
+    expect(calls).toEqual([["/process/cases/c%201/reresolve", { step: "f", rules: "current" }]]);
+    expect(r.status).toBe("nobody");
+  });
+
+  it("«ارجاع مرحله» of a step with too many people offers them (managers only); a real case's people pickers leave the pack's people out", () => {
+    expect(candidatesOf(detailOf(), "a").map((c) => c.name)).toEqual(["علی احمدی", "نگار کارشناس‌پور"]);
+    expect(candidatesOf(detailOf(), "f")).toEqual([]);
+    expect(candidatesOf(detailOf(), null)).toEqual([]);
+    expect(candidatesOf(detailOf({ waiting: { a: { ...many, candidates: undefined } } }), "a")).toEqual([]);
+    expect(demoPick(detailOf())).toBe("hide");
+    expect(demoPick(detailOf({ demo: true }))).toBe("mark");
+  });
+});
+
+describe("1.1.5: «کارتابل» rows (B5) and the «توضیح» hint (B6)", () => {
+  it("a click anywhere on a row opens the step; a click on a link inside it is the link's own; Enter opens it", () => {
+    const opened: string[] = [];
+    const p = inboxRowProps({ link: "workflows/c/c1/s/t1" }, (l) => opened.push(l));
+    const cell = { closest: () => null } as unknown as EventTarget;
+    const link = { closest: (sel: string) => (sel.includes("a") ? {} : null) } as unknown as EventTarget;
+    p.onClick({ target: cell });
+    p.onClick({ target: link });
+    p.onKeyDown({ key: "Enter", target: cell, currentTarget: cell });
+    p.onKeyDown({ key: " ", target: cell, currentTarget: cell });
+    expect(opened).toEqual(["workflows/c/c1/s/t1", "workflows/c/c1/s/t1"]);
+    expect(p).toMatchObject({ tabIndex: 0, className: "wfu-row-open" });
+  });
+
+  it("a row of the demo pack's case says «نمایشی»; the table's rows are focusable and open on a click", () => {
+    expect(inboxRowView(row({ demo: true }), display, WF_PATH).demo).toBe(true);
+    expect(inboxRowView(row(), display, WF_PATH).demo).toBe(false);
+    const qc = new QueryClient();
+    qc.setQueryData(USER_KEYS.inbox("org-1"), { rows: [row({ demo: true }), row({ id: "t2", case_id: "c2", number: "PRC0000124", link: "workflows/c/c2/s/t2" })], chips: [], counts: { waiting: 2, steps: 2, approvals: 0 }, default_tab: "inbox", display } satisfies Inbox);
+    qc.setQueryData(USER_KEYS.mine("org-1"), { processes: [] });
+    const html = renderIn(qc, "org-1", createElement(WorkflowsPage));
+    expect((html.match(/<tr[^>]*class="[^"]*wfu-row-open[^"]*"[^>]*>/g) ?? []).length).toBe(2);
+    expect(html).toMatch(/<tr[^>]*tabindex="0"/);
+    expect((html.match(/>نمایشی</g) ?? []).length).toBe(1);
+  });
+
+  it("the «توضیح» hint names only the decisions of this step that need a reason; a fill step has none", () => {
+    expect(commentHint(step())).toBe("برای «رد» و «بازگشت» دلیل را بنویسید");
+    expect(commentHint(step({ action: "review", outcomes: ["submitted", "returned"] }))).toBe("برای «بازگشت» دلیل را بنویسید");
+    expect(commentHint(step({ action: "approve", outcomes: ["approved", "rejected"] }))).toBe("برای «رد» دلیل را بنویسید");
+    // the owner's «مرحلهٔ فرم» (only «ارسال و پایان») read «برای «رد» و «بازگشت» دلیل را بنویسید»
+    expect(commentHint(step({ action: "fill", outcomes: ["submitted"], next: { submitted: "پایان" } }))).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// «راهنما» (explanations live there, not on the pages)
+
+describe("«راهنما» says what 1.1.5 does with a step's people — the owner's «کسی پیدا نشد»", () => {
+  const help = () => render("org-1", createElement(SessionProvider, null, createElement(Help)));
+  /** An article's words: tags dropped, entities read, spaces single. */
+  const article = (html: string, id: string) => {
+    const at = html.indexOf(`<article id="${id}"`);
+    expect(at, `no article «${id}»`).toBeGreaterThan(-1);
+    return html
+      .slice(at, html.indexOf("</article>", at))
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;|&#39;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ");
+  };
+
+  it("«گردش‌کارهای من»: a step nobody was found for says so, its managers see why and «دوباره پیدا کردن انجام‌دهنده», and it looks again when people are added", () => {
+    const mine = article(help(), "workflows");
+    // the words the case page shows (waitingLine) and the managers' action (CasePage)
+    expect(mine).toContain(`«${waitingLine({ reason: "nobody", message: "", notes: [] } as never, false)!.text}»`);
+    expect(mine).toContain("«دوباره پیدا کردن انجام‌دهنده»");
+    expect(mine).toMatch(/پس از افزودن دارندهٔ نقش یا عضو گروه خودش دوباره جست‌وجو می‌کند/);
+  });
+
+  it("«طراحی گردش‌کار»: the «کجا» a role starts with, and that the demo pack's holders take only cases demo accounts start", () => {
+    const design = article(help(), "workflows_admin");
+    expect(design).toContain(`«${POSITION_WHERE_LABELS.anywhere}»`);
+    expect(POSITION_WHERE_LABELS.requester_unit_up.startsWith("نزدیک‌ترین واحد بالادست")).toBe(true);
+    expect(design).toContain("«نزدیک‌ترین واحد بالادست»");
+    // the owner built the workflow on the pack's roles and started it as himself: nobody was found
+    expect(design).toMatch(/دارندگان نمایشی[^.]*فقط[^.]*پرونده‌هایی[^.]*حساب‌های نمایشی آغاز/);
+    expect(design).toMatch(/با یکی از حساب‌های نمایشی بیازمایید/);
+  });
+
+  it("«داده‌های نمایشی»: the pack's forms are tabbed («زبانه‌دار», never «چندزبانه» — many languages) and its fields, roles and people say «نمایشی»", () => {
+    const demo = article(help(), "demo");
+    expect(demo).toContain("فرم‌های زبانه‌دار");
+    expect(demo).not.toContain("چندزبانه");
+    expect(demo).toContain("برچسب «نمایشی»");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// the record kit on a phone (the same grid the process form uses)
+
+describe("the record kit's form on a phone", () => {
+  it("1.1.5: on a phone the record kit's grid drops its column gaps too, so a record page's fields stay inside their section", () => {
+    // RecordForm lays every record page out on the same 24-column grid: on a phone each field takes the whole row, but
+    // the 23 column gaps stayed, wider than a 375 px screen's form (its section's content box), so every field of
+    // «کار تازه» was drawn from x = -26 against a section from 16 (scripts/ui-shots.mjs: «… outside their form section»)
+    const records = readFileSync(join(__dirname, "../src/ui/records/records.css"), "utf8").replace(/\s+/g, " ");
+    const gap = Number(/\.rk-grid \{ display: grid; grid-template-columns: repeat\(24, minmax\(0, 1fr\)\); gap: \d+px (\d+)px; \}/.exec(records)?.[1]);
+    const phoneForm = 375 - 2 * 16 - 2 * (16 + 1); // the page's gutters, the section's padding and border
+    expect(23 * gap).toBeGreaterThan(phoneForm);
+    expect(records).toContain("@media (max-width: 639.98px) { .rk-grid { column-gap: 0; } .rk-f { grid-column: 1 / -1; } }");
   });
 });

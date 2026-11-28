@@ -64,6 +64,8 @@ export interface FormDetail {
   fields: Record<string, { label: string; type: string; type_label: string; def: FieldDef | null; retired: boolean }>;
   usage: { processes: string[] };
   editable: boolean;
+  /** one of the demo pack's forms (release 1.1.5): it leaves whole with the pack */
+  demo?: boolean;
 }
 
 export interface Viewpoint {

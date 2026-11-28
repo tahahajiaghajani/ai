@@ -1,11 +1,11 @@
 // Backups of the local database: a compressed copy of the PostgreSQL data folder.
 // Automatic every few hours (and before restores/updates), kept for N copies.
-import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { createGzip } from "node:zlib";
+import { AppError } from "@server/http/errors";
+import type { Logger } from "@server/context";
 import type { PgliteDb } from "@server/db/pglite";
+import { BackupStopped, writeOnlineBackup, type BackupFailure } from "./backup-stream";
 
 export function backupDir(dataDir: string, configured: string | null) {
   const dir = configured || join(dataDir, "backups");
@@ -18,24 +18,119 @@ function stamp(d = new Date()) {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
+const MB = 1024 * 1024;
+const fmtMb = (b: number) => (b >= 1024 * MB ? `${(b / (1024 * MB)).toFixed(2)} GB` : b >= 10 * MB ? `${Math.round(b / MB)} MB` : `${(b / MB).toFixed(1)} MB`);
+
+/** The Persian message of a backup that did not finish, by why (a manual backup shows it; app.log keeps the English one). */
+const FAILED: Record<BackupFailure | "failed", string> = {
+  cut_short: "پشتیبان‌گیری نیمه‌کاره ماند، چون در همان زمان داده‌های زیادی در پایگاه داده نوشته شد؛ چند دقیقهٔ دیگر دوباره امتحان کنید.",
+  missing_wal: "پشتیبان‌گیری کامل نشد، چون بخشی از گزارش تغییرات پایگاه داده که پشتیبان به آن نیاز داشت در میانهٔ کار پاک شد؛ دوباره امتحان کنید.",
+  disk: "فضای خالی دیسک پوشهٔ پشتیبان‌ها برای پشتیبان تازه کافی نیست؛ روی همان دیسک فضا آزاد کنید، مثلاً پشتیبان‌های قدیمی را به دیسک دیگری ببرید.",
+  aborted: "پشتیبان‌گیری متوقف شد، چون برنامه در حال بسته شدن است.",
+  failed: "پشتیبان گرفته نشد",
+};
+
 /**
- * A copy of the data folder: a checkpoint first (the copy then carries a few segments of write-ahead log, not the
- * backlog of the day, and a restore replays little), then PGlite's tarball of the folder, compressed into the file as a
- * stream (no second copy of it in memory). The same gzip'd tar as PGlite's own `dumpDataDir("gzip")`; a restore loads
- * it with `loadDataDir`.
+ * A backup that did not finish: `reason` says why (bridge.ts retries one cut short), the message is the Persian one a
+ * manual backup shows, `logged` the English line for app.log.
  */
-export async function backupNow(db: Pick<PgliteDb, "pg" | "checkpoint">, dir: string, label = "auto"): Promise<{ file: string; size: number }> {
-  await db.checkpoint("backup");
-  const tar = await db.pg.dumpDataDir("none");
-  const file = join(dir, `itsm-${label}-${stamp()}.tar.gz`);
-  try {
-    await pipeline(Readable.fromWeb(tar.stream() as Parameters<typeof Readable.fromWeb>[0]), createGzip(), createWriteStream(`${file}.part`));
-  } catch (e) {
-    rmSync(`${file}.part`, { force: true });
-    throw e;
+export class BackupError extends AppError {
+  constructor(
+    readonly reason: BackupFailure | "failed",
+    message: string,
+    readonly logged: string,
+  ) {
+    super(503, "backup_failed", message, { reason });
   }
-  renameSync(`${file}.part`, file);
-  return { file, size: statSync(file).size };
+}
+
+export interface BackupOptions {
+  /** aborts a backup under way (the app is closing) */
+  signal?: AbortSignal;
+  /** where the backup's line goes (app.log) */
+  log?: Pick<Logger, "info">;
+  /** free bytes the backups' disk must have before a backup starts */
+  minFreeBytes?: number;
+  /** the copy is cut short past this much log written during it (default 64 MB) */
+  maxWalBytes?: number;
+  /** free bytes of a folder's disk (tests) */
+  freeBytes?: (dir: string) => number;
+}
+
+/**
+ * A copy of the data folder while the app goes on working (./backup-stream.ts: PostgreSQL's online backup, the folder
+ * streamed through gzip into the file, the log written meanwhile added at the end): never the whole folder in memory,
+ * the thread and the database never held for long. A checkpoint first (logged as before), so a restore replays little.
+ * The same gzip'd tar a restore has always loaded (`loadDataDir` reads it as it read PGlite's own dump), and
+ * `extractBackup` restores it as a stream. A backup that does not finish throws a `BackupError` and leaves nothing.
+ */
+export async function backupNow(
+  db: Pick<PgliteDb, "pg" | "checkpoint"> & Partial<Pick<PgliteDb, "wal">>,
+  dir: string,
+  label = "auto",
+  o: BackupOptions = {},
+): Promise<{ file: string; size: number }> {
+  const dataDir = db.pg.dataDir;
+  if (!dataDir || /^(memory|idb):\/\//.test(dataDir)) throw new BackupError("failed", "پشتیبان‌گیری فقط برای پایگاه دادهٔ محلی روی دیسک ممکن است", "backup failed: the database has no data folder");
+  const file = join(dir, `itsm-${label}-${stamp()}.tar.gz`);
+  const dropped = dropUnfinishedBackups(dir);
+  if (dropped.files) o.log?.info(`backup: removed ${dropped.files} unfinished backup file${dropped.files === 1 ? "" : "s"} of an earlier run (${fmtMb(dropped.bytes)})`);
+  try {
+    const r = await writeOnlineBackup(db, dataDir.replace(/^file:\/\//, ""), file, {
+      label: basename(file),
+      signal: o.signal,
+      minFreeBytes: o.minFreeBytes,
+      maxWalBytes: o.maxWalBytes,
+      freeBytes: o.freeBytes,
+    });
+    o.log?.info(`backup: ${basename(file)} ${fmtMb(r.size)} from ${fmtMb(r.bytes)} in ${(r.ms / 1000).toFixed(1)} s (online; ${r.wal_segments} log segment${r.wal_segments === 1 ? "" : "s"})`);
+    if (r.foreign.length) o.log?.info(`backup: left out ${r.foreign.length} entr${r.foreign.length === 1 ? "y" : "ies"} of the database folder that PostgreSQL does not use: ${r.foreign.slice(0, 5).join(", ")}${r.foreign.length > 5 ? ", …" : ""}`);
+    return { file: r.file, size: r.size };
+  } catch (e) {
+    if (e instanceof BackupStopped) throw new BackupError(e.reason, FAILED[e.reason], e.message);
+    const why = String((e as Error)?.message ?? e);
+    throw new BackupError("failed", `${FAILED.failed}: ${why}`, `backup failed: ${why}`);
+  }
+}
+
+/** A backup's file while it is written (renamed to its own name once complete, ./backup-stream.ts). */
+const PART_FILE = /^itsm-.*\.tar\.gz\.part$/;
+/** An unfinished backup's file this old belongs to a backup the app never finished, never to one under way. */
+export const STALE_PART_MS = 24 * 3600_000;
+
+/**
+ * The files of backups that the app's end cut short (killed, the computer switched off): nothing removed them, so each
+ * held up to a backup's size on the backups' disk for good. Removed once a day old — a backup under way writes its file
+ * all along, so not even another computer's backup into the same folder is touched.
+ */
+export function dropUnfinishedBackups(dir: string, now = Date.now()): { files: number; bytes: number } {
+  const out = { files: 0, bytes: 0 };
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    if (!PART_FILE.test(name)) continue;
+    const p = join(dir, name);
+    try {
+      const st = statSync(p);
+      if (!st.isFile() || now - st.mtimeMs < STALE_PART_MS) continue;
+      unlinkSync(p);
+      out.files++;
+      out.bytes += st.size;
+    } catch {
+      /* gone meanwhile, or held open */
+    }
+  }
+  return out;
+}
+
+/** Free bytes a new backup needs on the backups' disk: twice the last one's size and 512 MB more. */
+export function backupSpaceNeeded(dir: string): number {
+  const last = listBackups(dir)[0]?.size ?? 0;
+  return 2 * last + 512 * MB;
 }
 
 /** Backups are named `itsm-<label>-<stamp>.tar.gz` (label: auto, manual, before-restore). */
@@ -78,26 +173,57 @@ export function restorePending(dataDir: string) {
   return existsSync(join(dataDir, "restore.pending"));
 }
 
+/** The marker of a restore under way since its start set the database aside. */
+const RESTORE_RUNNING = "restore.running";
+const ASIDE = /^db-before-restore-\d{8}-\d{6}$/;
+
 /**
- * Called before the database opens: if a restore is pending, keep the current database aside
- * and return the backup to load. The caller opens PGlite with `loadDataDir` and, when that
- * fails, puts the current database back with `undoRestore` (a broken backup must not leave
- * an empty database behind).
+ * Called before the database opens: if a restore is pending, keep the current database aside and return the backup to
+ * load — its path only: the backup is never read into memory (server.ts extracts it as a stream, ./backup-stream.ts
+ * `extractBackup`, then opens the folder). When that fails the caller puts the current database back with
+ * `undoRestore` (a broken backup must not leave an empty database behind). An interrupted compaction's marker
+ * (./maintenance.ts) names files of the database set aside, not of the restored one: it goes too.
+ *
+ * A restore that its start never finished — the app killed or the computer switched off while the backup was being
+ * extracted — leaves a folder without PG_VERSION (written last), and the start after it took that for a first start: a
+ * new, empty database from the build's template, the person's own left aside where nothing looks for it.
+ * `restore.running` names the database set aside until the next start, which puts it back when it finds no database
+ * (the backup can be restored again from Settings).
  */
-export function takePendingRestore(dataDir: string): { data: Buffer; aside: string | null } | null {
+export function takePendingRestore(dataDir: string, log?: Pick<Logger, "warn">): { file: string; aside: string | null } | null {
+  settleRestore(dataDir, log);
   const marker = join(dataDir, "restore.pending");
   if (!existsSync(marker)) return null;
   const file = readFileSync(marker, "utf8").trim();
   rmSync(marker, { force: true });
   if (!file || !existsSync(file)) return null;
-  const data = readFileSync(file);
   const db = join(dataDir, "db");
-  let aside: string | null = null;
-  if (existsSync(db)) {
-    aside = join(dataDir, `db-before-restore-${stamp()}`);
-    renameSync(db, aside);
+  const aside = existsSync(db) ? join(dataDir, `db-before-restore-${stamp()}`) : null;
+  // named before it is set aside: a start cut short from here on finds it again (a marker whose database is still in
+  // place is only dropped)
+  writeFileSync(join(dataDir, RESTORE_RUNNING), JSON.stringify({ file, aside: aside ? basename(aside) : null, at: new Date().toISOString() }), "utf8");
+  if (aside) renameSync(db, aside);
+  rmSync(join(dataDir, "maintenance.running"), { force: true });
+  return { file, aside };
+}
+
+/** An earlier start's restore: finished if a database is there, else cut short — the database from before it goes back. */
+function settleRestore(dataDir: string, log?: Pick<Logger, "warn">) {
+  const running = join(dataDir, RESTORE_RUNNING);
+  if (!existsSync(running)) return;
+  let name: string | null = null;
+  try {
+    const m = JSON.parse(readFileSync(running, "utf8")) as { aside?: unknown };
+    name = typeof m.aside === "string" && ASIDE.test(m.aside) ? m.aside : null;
+  } catch {
+    name = null;
   }
-  return { data, aside };
+  const aside = name ? join(dataDir, name) : null;
+  if (!existsSync(join(dataDir, "db", "PG_VERSION")) && aside && existsSync(join(aside, "PG_VERSION"))) {
+    undoRestore(dataDir, aside);
+    log?.warn("restoring a backup was cut short at an earlier start (the app closed or the computer switched off while it was extracted): the database from before it is back");
+  }
+  rmSync(running, { force: true });
 }
 
 /** A restore could not be loaded: drop what it left in `db` and put the previous database back. */

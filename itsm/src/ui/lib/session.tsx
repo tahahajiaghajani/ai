@@ -3,9 +3,45 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ModuleKey } from "@shared/constants";
 import { api, ApiError } from "./api";
 
-/** The web version's answers that mean «the server is not ready» (src/server/cloud.ts), not «this request failed». */
-export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable"]);
-const serverState = (e: unknown) => e instanceof ApiError && SERVER_STATES.has(e.code);
+/**
+ * The web version's answers that mean «the server is not ready» (src/server/cloud.ts), not «this request failed»: its
+ * database being prepared, missing, unreachable, busy or too slow (src/server/http/errors.ts), a request past its
+ * deadline, or a gateway's own 502/503/504 (./api.ts). A failed /auth/me then shows «آماده‌سازی», which asks
+ * /api/health until the server answers again — instead of sending the person to the sign-in page.
+ */
+export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable", "db_unavailable", "db_busy", "db_timeout", "timeout", "gateway_timeout", "unavailable"]);
+export const serverState = (e: unknown): e is ApiError => e instanceof ApiError && SERVER_STATES.has(e.code);
+
+/**
+ * Where «خروج» goes: the sign-in page, which says so when the server could not end the session yet (it clears this
+ * browser's cookie all the same: src/server/routes/auth.ts) — the person ends it from «خروج از همهٔ دستگاه‌های دیگر»
+ * once the system answers again.
+ */
+export function signedOutPath(ended: boolean): string {
+  return ended ? "/login" : "/login?signout=pending";
+}
+
+/** «Not ready» answers about the whole deployment, not a busy moment: they replace the app even over data it has. */
+const DEPLOYMENT_STATES = new Set(["migrating", "not_configured"]);
+
+/**
+ * The session's answer that replaces the app with «آماده‌سازی» (/meta, /auth/me): a «not ready» answer while the session
+ * has no answer yet, or one about the whole deployment (its database being prepared, none configured). A background
+ * refetch that met a busy or slow database while the session's data was already there keeps the app — and the input
+ * typed into it —; the page's own requests say what failed, and the next refetch asks again.
+ */
+export function blockingServerError(...qs: { data: unknown; error: unknown }[]): ApiError | null {
+  for (const q of qs) if (serverState(q.error) && (q.data === undefined || DEPLOYMENT_STATES.has(q.error.code))) return q.error;
+  return null;
+}
+
+/**
+ * A first run: the server has no account yet and nobody is signed in — a session proves an account exists. A /api/meta
+ * that said first_run to a signed-in person (1.1.4's candidate, on a failed count) sent her round / → /setup → /signup → /.
+ */
+export function isFirstRun(meta: Pick<Meta, "first_run"> | undefined, me: Me | null | undefined): boolean {
+  return !!meta?.first_run && !me;
+}
 
 export interface Meta {
   app: string;
@@ -29,7 +65,8 @@ export interface DesktopInfo {
   computer: string;
   local_url: string;
   lan: { enabled: boolean; port: number; addresses: string[] };
-  cloud: { linked: boolean; url: string | null; org_id: string | null; email: string | null; linked_at: string | null; auto_sync: boolean };
+  /** `edition`: what the link reaches (an organisation's server edition or the web version; null while unknown) */
+  cloud: { linked: boolean; url: string | null; org_id: string | null; email: string | null; linked_at: string | null; auto_sync: boolean; edition?: "web" | "server" | null };
   sync: { linked: boolean; running: boolean; online: boolean | null; last_sync_at: string | null; last_error: string | null; pending: number; failed: { entity: string; id: string; error: string | null }[] };
   backups: { dir: string; auto: boolean; keep: number; last: { at: string; file: string; size: number } | null };
 }
@@ -88,7 +125,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("itsm:unauthorized", onUnauthorized);
   }, [qc]);
 
-  const serverError = [meta.error, me.error].find(serverState) as ApiError | undefined;
+  const serverError = blockingServerError(meta, me);
   const value: SessionValue = {
     meta: meta.data,
     serverError: serverError ?? null,
@@ -98,9 +135,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await Promise.all([qc.invalidateQueries({ queryKey: ["me"] }), qc.invalidateQueries({ queryKey: ["meta"] })]);
     },
     logout: async () => {
-      await api.post("/auth/logout").catch(() => {});
+      const ended = await api.post("/auth/logout").then(
+        () => true,
+        () => false,
+      );
       qc.clear();
-      window.location.href = "/login";
+      window.location.href = signedOutPath(ended);
     },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

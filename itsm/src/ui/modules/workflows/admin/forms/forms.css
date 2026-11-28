@@ -184,6 +184,10 @@
   color: var(--ds-text-3);
   white-space: nowrap;
 }
+/* the technical name of a field whose label another library field carries, beside its type */
+.wfm-pal-item small + small {
+  margin-inline-start: 0;
+}
 .wfm-pal-actions {
   display: flex;
   flex-wrap: wrap;

@@ -377,8 +377,8 @@ async function ingestHandler(c: C, key: string) {
   const payload = parseBody(raw, c.req.header("content-type") ?? "", src.kind);
   try {
     const r = await ingest(cfg, src, payload, { idempotencyKey: c.req.header("idempotency-key") ?? null });
-    // the web version runs the processing right after the answer
-    if (r.accepted && cfg.waitUntil) cfg.waitUntil(() => tick(cfg, { budgetMs: 4000 }).then(() => undefined).catch(() => undefined));
+    // the web version runs the processing right after the answer (finished jobs are deleted by GET /api/cron/tick alone)
+    if (r.accepted && cfg.waitUntil) cfg.waitUntil(() => tick(cfg, { budgetMs: 4000, cleanup: false }).then(() => undefined).catch(() => undefined));
     return c.json({ ok: true, accepted: r.accepted, duplicates: r.duplicates, skipped: r.skipped ?? null, confirm: r.confirm ?? false }, r.accepted ? 202 : 200);
   } catch (e) {
     const wait = (e as { retryAfter?: number }).retryAfter;
@@ -405,7 +405,7 @@ publicRoutes.post("/ack/:token", rateLimit({ name: "event-ack", limit: 30, windo
   const cfg = c.get("cfg");
   c.header("Cache-Control", "no-store");
   const r = await ackByToken(cfg as never, c.req.param("token") ?? "");
-  if (r.changed && cfg.waitUntil) cfg.waitUntil(() => tick(cfg, { budgetMs: 4000 }).then(() => undefined).catch(() => undefined));
+  if (r.changed && cfg.waitUntil) cfg.waitUntil(() => tick(cfg, { budgetMs: 4000, cleanup: false }).then(() => undefined).catch(() => undefined));
   return c.json(r);
 });
 

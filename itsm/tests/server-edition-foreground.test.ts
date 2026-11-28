@@ -355,10 +355,12 @@ describe("the scheduler leader's job runner gives way to a person's requests any
     const cluster = src("server-edition/cluster.ts");
     expect(cluster).toMatch(/m\.t === "fg"\) foregroundChanged\(foreground\.set\(w\.id, m\.on === true\)\)/);
     expect(cluster).toMatch(/foregroundChanged\(foreground\.gone\(w\.id\)\)/);
-    // the Windows app: its window's requests (windowRequest) and signed-in browsers of the office network (cfg.foreground)
+    // the Windows app: its window's requests (windowRequest) and signed-in browsers of the office network (cfg.foreground);
+    // the same hook also stamps when a person last used the app (lastPerson), which the idle upkeep reads (watchPeople)
     const desktop = src("desktop/server.ts");
-    expect(desktop).toMatch(/foreground: \{ started: \(\) => void signedIn\+\+, ended: \(\) => void signedIn-- \}/);
+    expect(desktop).toMatch(/foreground: \{ started: \(\) => void \(\(lastPerson = performance\.now\(\)\), signedIn\+\+\), ended: \(\) => void \(\(lastPerson = performance\.now\(\)\), signedIn--\) \}/);
     expect(desktop).toMatch(/busy: \(\) => fromWindow > 0 \|\| signedIn > 0/);
+    expect(desktop).toMatch(/bridge\.watchPeople\(\(\) => \(fromWindow > 0 \|\| signedIn > 0 \? 0 : performance\.now\(\) - lastPerson\)\)/);
     expect(desktop).toMatch(/if \(isBackgroundRequest\(c\) \|\| !windowRequest\(peerOf\(c\), c\.req\.header\("authorization"\)\)\) return next\(\);\n\s+fromWindow\+\+;/);
   });
 });

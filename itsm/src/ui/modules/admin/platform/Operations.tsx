@@ -9,6 +9,8 @@ import { CheckCheck, Download, Play, Plus, RotateCcw, Trash2, Undo2, X } from "l
 import { api } from "../../../lib/api";
 import { useAction } from "../../../lib/hooks";
 import { fa, jDate } from "../../../lib/fa";
+import { useSession } from "../../../lib/session";
+import { EDITION_NAMES, editionOf } from "../../../lib/edition";
 import { PageHeader } from "../../../components/layout";
 import { Chip, Skeleton, StatCard } from "../../../components/display";
 import { Card } from "../../../components/blocks";
@@ -35,7 +37,7 @@ function Jobs() {
   const summary = useAdminQuery<{ kinds: { kind: string; queued: number; running: number; failed: number; done: number; oldest_queued: string | null }[]; totals: Record<string, number>; backlog_seconds: number; failed_24h: number }>(["console", "jobs", "summary", org], "/admin/jobs/summary", { org });
   const jobs = useAdminQuery<{ jobs: Row[] }>(["console", "jobs", "list", status, kind, org], "/admin/jobs", { status, kind, org });
   const refresh = () => qc.invalidateQueries({ queryKey: ["admin", "console", "jobs"] });
-  const act = useAction((v: { id: string; action: "retry" | "cancel" }) => api.post(`/admin/jobs/${v.id}/${v.action}`), { success: "انجام شد", onSuccess: refresh });
+  const act = useAction((v: { id: string; action: "retry" | "cancel" }) => api.post<{ message?: string }>(`/admin/jobs/${v.id}/${v.action}`), { success: (r) => r?.message ?? "انجام شد", onSuccess: refresh });
   const tick = useAction(() => api.post<{ ran?: number; done?: number }>("/admin/jobs/tick"), { success: "صف یک بار اجرا شد", onSuccess: refresh });
   const s = summary.data;
   return (
@@ -188,12 +190,14 @@ interface Version {
 
 function VersionTab() {
   const q = useAdminQuery<Version>(["console", "version"], "/admin/version");
+  // the edition by the session (the server edition's API mode is "cloud", as the web version's)
+  const { meta } = useSession();
   const v = q.data;
   if (!v) return <Skeleton rows={6} />;
   return (
     <div className="flex flex-col gap-4">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="نسخه">
-        <StatCard title="نسخهٔ سامانه" value={<span className="ds-num ds-latin">{v.app_version}</span>} hint={v.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز"} />
+        <StatCard title="نسخهٔ سامانه" value={<span className="ds-num ds-latin">{v.app_version}</span>} hint={EDITION_NAMES[editionOf(meta)]} />
         <StatCard title="ساختار پایگاه داده" value={v.schema.pending.length ? `${fa(v.schema.pending.length)} مهاجرت مانده` : "به‌روز"} tone={v.schema.pending.length ? "bad" : "ok"} hint={v.schema.latest ? <span className="ds-latin">{v.schema.latest}</span> : undefined} />
         <StatCard title="پروتکل همگام‌سازی" value={<span className="ds-num">{fa(v.sync_protocol)}</span>} hint={<span className="ds-latin">Node {v.node}</span>} />
         <StatCard title="برنامه‌های ویندوز قدیمی" value={<span className="ds-num">{fa(v.devices_outdated)}</span>} tone={v.devices_outdated ? "bad" : "muted"} hint={`${fa(v.orgs)} سازمان`} />

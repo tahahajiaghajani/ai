@@ -8,6 +8,12 @@
 .wff-ltr {
   display: block;
 }
+/* a label another library field already carries: a warning under it, never a refusal */
+.wff-warn {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ds-warning);
+}
 .wff-tabsel {
   inline-size: 100%;
 }

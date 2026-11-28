@@ -12,7 +12,8 @@ import type { FieldDef } from "@shared/model/types";
 import { snapshotFields } from "@shared/forms/snapshot";
 import { attachmentIds } from "@shared/forms/validators";
 import type { Ctx, ServerConfig } from "../../../context";
-import { pgArray, type Tx } from "../../../db";
+import { pgArray, type Queryable, type Tx } from "../../../db";
+import { demoScopeOrg, inDemoScope } from "../../../db/scope";
 import { systemCtx, updateIn } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import { notifyPeople } from "../../notify/deliver";
@@ -108,20 +109,58 @@ async function tellSubmitter(tx: Tx, orgId: string, sub: SubmissionRow, r: Pick<
 }
 
 /**
+ * Is a submission demo work: a row of the demo pack (a pack person's push, or their create through the record API), or
+ * a decision about a case of the pack's? Read before its transaction (PGlite has one connection).
+ */
+export async function demoSubmission(q: Queryable, orgId: string, submissionId: string): Promise<boolean> {
+  const r = await q.one<{ demo: boolean }>(
+    `select exists (
+       select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id in (
+         select s.id from sm_process_submissions s where s.org_id = $1 and s.id = $2
+         union all select t.case_id from sm_process_submissions s join sm_process_tasks t on t.org_id = s.org_id and t.id = s.task_id where s.org_id = $1 and s.id = $2
+         union all select c.id from sm_process_submissions s join sm_process_cases c on c.org_id = s.org_id and c.id::text = s.case_id where s.org_id = $1 and s.id = $2)
+     ) as demo`,
+    [orgId, submissionId.toLowerCase()],
+  );
+  return r?.demo === true;
+}
+
+/**
  * Apply a submission that waits (pending) on the authority. `since`: when it arrived (the start of the wait for its
- * files); null starts a wait now when files are missing. Returns what happened.
+ * files); null starts a wait now when files are missing. Returns what happened. Each submission is applied in its own
+ * demo scope, whoever applies it — its event job, `process.apply`, or the organisation's own `process.timer`, which
+ * re-checks what is still pending outside any demo scope. A submission of the demo pack's (a pack person's push, or
+ * their create through the record API) or about a case of the pack's is demo work: the case it starts, its tasks and
+ * journal are the pack's rows, its steps go to the pack's people, and the purge takes it. Any other is the
+ * organisation's own work, outside the demo scope even when a demo job applies it (docs/DEMO_FA.md).
  */
 export async function applyPending(cfg: ServerConfig, orgId: string, submissionId: string, since: number | null): Promise<PushedOutcome> {
   if (!isId(submissionId) || !(await processesRunHere(cfg, orgId))) return "skipped";
   const sys = await systemCtx(cfg, orgId);
-  return sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
+  const apply = () => sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
+  return inDemoScope((await demoSubmission(cfg.db, orgId, submissionId)) ? orgId : null, apply);
 }
 
-/** `applyPending` inside the caller's transaction (as the system, on the authority). */
+/**
+ * `applyPending` inside the caller's transaction (as the system, on the authority). A real person's submission about a
+ * case of the pack's (pushed from their Windows app, or their own create through the record API — written outside the
+ * demo scope) is the pack's, as everything its apply writes: it joins the pack's rows with what was written with it —
+ * its history and its files (../engine/boundary.ts).
+ */
 export async function applyPendingIn(tx: Tx, sys: Ctx, submissionId: string, since: number | null): Promise<PushedOutcome> {
   const orgId = sys.org.id;
   const sub = await tx.one<SubmissionRow>(`select * from sm_process_submissions where org_id = $1 and id = $2 and deleted_at is null for update`, [orgId, submissionId.toLowerCase()]);
   if (!sub || (sub.result && sub.result !== "pending")) return "skipped";
+  if (demoScopeOrg() === orgId) {
+    await tx.query(
+      `insert into sm_demo_rows (org_id, row_id, tbl)
+       select $1::uuid, $2::uuid, 'sm_process_submissions'
+       union all select $1::uuid, h.id, 'sm_history' from sm_history h where h.org_id = $1::uuid and h.table_key = 'process_submission' and h.record_id = $2::uuid
+       union all select $1::uuid, a.id, 'sm_attachments' from sm_attachments a where a.org_id = $1::uuid and a.table_key = 'process_submission' and a.record_id = $2::uuid
+       on conflict do nothing`,
+      [orgId, sub.id],
+    );
+  }
   const missing = await missingFiles(tx, orgId, sub);
   if (missing.length) {
     const from = since ?? Date.now();

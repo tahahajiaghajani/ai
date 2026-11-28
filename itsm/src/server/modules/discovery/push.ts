@@ -30,7 +30,7 @@ import { pgArray, type Queryable } from "../../db";
 import { inDemoScope } from "../../db/scope";
 import { systemCtx } from "../../engine";
 import { AppError, bad, forbidden, notFound, zodToAppError } from "../../http/errors";
-import { enqueue, registerJobHandler, type JobResult } from "../../jobs";
+import { enqueue, registerJobHandler, type ExhaustedContext, type Job, type JobResult } from "../../jobs";
 import type { ApiCaller } from "../integration/api";
 import { assertWritable } from "../platform/org-admin";
 import { observeDevices, STRONG_ONLY_MESSAGE, type DeviceReport } from "./device";
@@ -65,6 +65,7 @@ export const PUSH_MESSAGES = {
   unmatched: "با هیچ مورد، پیکربندی یا دارایی‌ای یکی نشد",
   snapshotParts: "شمارهٔ بخش نباید از شمار بخش‌ها بیشتر باشد",
   snapshotAbandoned: "بخش‌هایی از این تصویر کامل تا ۲۴ ساعت نرسید و تصویر رها شد؛ چیزی «دیگر گزارش نمی‌شود» نشد",
+  snapshotFailed: "پردازش یکی از بخش‌های این تصویر کامل ناتمام ماند و تصویر رها شد؛ چیزی «دیگر گزارش نمی‌شود» نشد",
   noStatus: "وضعیت دسته پیدا نشد",
 } as const;
 
@@ -552,6 +553,30 @@ export async function receiveStatus(caller: ApiCaller, connectorId: string, inpu
   return { status: 200, body: { state: "done", updated: answers.filter((a) => a.result === "updated").length, unmatched: answers.filter((a) => a.result === "unmatched").length, items: answers } };
 }
 
+/**
+ * A batch whose job stopped at its last attempt ends «ناموفق» with the reason in its errors (the sender's status URL
+ * says so), and a snapshot it belongs to is abandoned — finalising it without this part would mark the part's records
+ * «دیگر گزارش نمی‌شود», and its other parts would wait for this one for ever.
+ */
+export async function pushBatchExhausted(job: Job, ectx: ExhaustedContext): Promise<void> {
+  const batch = (job.payload ?? {}).batch;
+  if (!job.org_id || typeof batch !== "string" || !/^[0-9a-f-]{36}$/i.test(batch)) return;
+  const b = await ectx.db.one<{ connector_id: string; snapshot_id: string | null }>(
+    `update sm_discovery_batches set state = 'failed', result = coalesce(result, '{}'::jsonb) || jsonb_build_object('errors',
+       coalesce(result->'errors', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('index', -1, 'message', $3::text))), updated_at = now()
+     where org_id = $1 and id = $2 and state in ('queued', 'staging', 'reconciling') and deleted_at is null returning connector_id, snapshot_id`,
+    [job.org_id, batch, ectx.error.slice(0, 500)],
+  );
+  if (!b?.snapshot_id) return;
+  await ectx.db.query(
+    `update sm_discovery_batches set result = coalesce(result, '{}'::jsonb) || jsonb_build_object('snapshot_state', 'abandoned',
+       'warnings', coalesce(result->'warnings', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('index', -1, 'message', $4::text))), updated_at = now()
+     where org_id = $1 and connector_id = $2 and snapshot_id = $3 and deleted_at is null
+       and coalesce(result->>'snapshot_state', '') not in ('finalised', 'abandoned')`,
+    [job.org_id, b.connector_id, b.snapshot_id, PUSH_MESSAGES.snapshotFailed],
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Jobs
 
@@ -568,7 +593,7 @@ export function installDiscoveryPush(): void {
     const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
     if (typeof p.batch !== "string") return;
     return inConnectorScope(jctx.db, a.orgId, a.connector, async (demo) => pushBatchJob(await systemCtx(jctx.cfg, a.orgId), a.connector, p.batch, { new: list(p.new), changed: list(p.changed) }, { demo }));
-  });
+  }, { onExhausted: pushBatchExhausted });
   registerJobHandler(PUSH_STATUS_JOB, async (job, jctx) => {
     const a = await admittedJob(job, jctx);
     if (!a || !("orgId" in a)) return a ?? undefined;

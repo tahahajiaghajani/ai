@@ -38,6 +38,7 @@ import { sweep as eventSweep } from "@server/modules/event/jobs";
 import { continuitySweep } from "@server/modules/continuity/jobs";
 import { securitySweep } from "@server/modules/security/jobs";
 import { portalSweep } from "@server/modules/portal";
+import { wakeTimer } from "@server/modules/process/timers";
 import { periodKeyOf } from "@shared/financial/logic";
 import { faDigits } from "@shared/format";
 
@@ -72,8 +73,22 @@ const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls"
  */
 const RAG_INDEX = new Set(["sm_ai_rag_docs", "sm_ai_chunks"]);
 
-/** Checked on their own below: the job queue (scheduling state) and the audit log (the allowed lines). */
-const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations"]);
+/**
+ * The organisation's own cost capture while the pack is loaded (the financial sweep below, outside the demo scope)
+ * posts the months it covers for the organisation's own items — the seeded contracts and subscription: real work the
+ * purge keeps with its history, like REAL_WORK but row by row. Allowed only for ledger entries the system made for an
+ * item that was there before the load and that name no demo row: the costs of the pack's items are its own ledger's,
+ * inside the demo scope, and go with it (financial/service.ts ledgerSide, tests/demo-ledger.test.ts).
+ */
+const OWN_CAPTURE = "sm_cost_entries";
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+
+/**
+ * Checked on their own below: the job queue (scheduling state), the audit log (the allowed lines) and the purged-id
+ * ledger (ids and table names only, kept 30 days and until every Windows app has pulled since: a Windows app that was
+ * away never brings the pack back, and a later purge recognises what this one left — modules/demo/ledger.ts).
+ */
+const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations", "sm_demo_purged"]);
 
 type Snapshot = Map<string, Map<string, string>>;
 
@@ -287,9 +302,18 @@ describe.skipIf(skip)(title, () => {
     for (const k of ["budget", "allocation_rule", "allocation_run", "slm_xla_policy", "wfm_person_skill", "wfm_roster", "wfm_absence", "customer_account", "customer_case", "case_escalation", "install_base_item",
       "facility_request", "finance_case", "legal_request", "purchase_request", "reservation", "territory", "technician", "work_order", "parts_requirement", "maintenance_plan", "event", "bia", "continuity_plan", "exercise", "outage",
       "grc_control", "grc_risk", "release", "deployment", "dev_repository", "project", "project_task", "portal_link", "portal_topic", "survey", "survey_response", "doc_document", "analytics_dashboard", "analytics_indicator",
-      "field_def", "form", "process"]) {
+      "field_def", "form", "process", "process_version", "position", "position_holder", "process_case"]) {
       expect(status.counts[k] ?? 0, k).toBeGreaterThan(0);
     }
+    // the bank's own workflows (src/server/modules/demo/workflows.ts): fields, tabbed forms, roles and their holders, six
+    // workflows beside the access request, and sample cases in every state
+    expect(status.counts.field_def).toBeGreaterThanOrEqual(4 + 14);
+    expect(status.counts.form).toBeGreaterThanOrEqual(1 + 3);
+    expect(status.counts.process).toBeGreaterThanOrEqual(1 + 6);
+    expect(status.counts.position).toBeGreaterThanOrEqual(5);
+    expect(status.counts.process_case).toBeGreaterThanOrEqual(14);
+    const caseStates = (await e.db.query<{ state: string }>(`select distinct state from sm_process_cases where org_id = $1`, [e.org])).map((r) => r.state).sort();
+    expect(caseStates).toEqual(["active", "canceled", "completed", "rejected", "waiting"]);
     const n = async (sql: string) => (await e.db.one<{ n: number }>(sql.replace("$org", "$1"), [e.org]))!.n;
     // the personas of the rest of the bank are there, none an administrator (membership role member, no tenant_admin)
     for (const key of ["finance", "csm", "field", "ops", "release", "pm", "grc", "wfm"]) expect(status.accounts.map((a: { persona: string }) => a.persona)).toContain(key);
@@ -413,6 +437,15 @@ describe.skipIf(skip)(title, () => {
     await itamSweep(sys);
     await openAttestations(sys);
     await financialSweep(sys);
+    // … keeping to its side of the demo boundary: every ledger entry for an item of the pack's is the pack's own (its
+    // ledger, inside the demo scope), every entry for one of the organisation's items is the organisation's
+    const sides = await e.db.query<{ key: string; demo: boolean }>(
+      `select x.source_key as key, exists (select 1 from sm_demo_rows d where d.org_id = x.org_id and d.row_id = x.id) as demo from sm_cost_entries x
+        where x.org_id = $1 and x.source_key is not null and exists (select 1 from sm_demo_rows d where d.org_id = x.org_id and d.row_id = x.id)
+          <> exists (select 1 from sm_demo_rows d where d.org_id = x.org_id and d.row_id::text = substring(x.source_key from '${UUID.source}')) limit 10`,
+      [e.org],
+    );
+    expect(sides, "ledger entries posted by the other side of the demo boundary").toEqual([]);
     await fleet(sys, { days: 30 });
     // the CMDB's own scheduled health check over every CI, outside the demo scope (on a fast machine it also runs by
     // itself while the pack is loaded): the findings it raises about demo CIs, the predictions and history about those
@@ -469,6 +502,27 @@ describe.skipIf(skip)(title, () => {
     await analyst.c.post(`/o/${e.org}/process/tasks/${approval.id}/submit`, { outcome: "approved", values: { [W.fields.note.name]: "دسترسی خواندنی بی‌اشکال است" } });
     await drain(e, ["flows.run", "flows.resume"], 120_000);
     expect((await requester.c.get(`/o/${e.org}/process/cases/${started.case}`)).statuses).toMatchObject({ approve: { status: "done" }, grant: { status: "active" } });
+    // the bank's own workflows, as a presentation tries them (docs/DEMO_FA.md «گردش‌کارهای نمونه»): the pack's agent sends
+    // the project's «مرحلهٔ فرم» from «کارتابل»; the project's manager gives the case waiting on version 1 to the holders
+    // («دوباره پیدا کردن انجام‌دهنده» with version 2's rules); the branch's officer asks for petty cash, nobody approves,
+    // and the organisation's timer (outside the demo scope; the case inside it) ends it at «پایان مهلت» — demo work all
+    const projectStep = (await agent.get(`/o/${e.org}/process/inbox`)).rows.find((r: { step: string; demo: boolean }) => r.step === "مرحلهٔ فرم" && r.demo);
+    expect(projectStep, "the agent's «مرحلهٔ فرم» of the pack's project").toBeTruthy();
+    await agent.post(`/o/${e.org}/process/tasks/${projectStep.id}/submit`, { values: { u_aftab_prj_delay: 2, u_aftab_prj_delay_reason: "انتظار برای تجهیزات", u_aftab_prj_review: "بررسی شد" } });
+    const manager = await persona("manager");
+    const waiting = await e.db.one<{ id: string }>(`select c.id from sm_process_cases c join sm_processes p on p.id = c.process_id where c.org_id = $1 and p.key = 'aftab_project' and c.state = 'waiting'`, [e.org]);
+    expect((await manager.c.post(`/o/${e.org}/process/cases/${waiting!.id}/reresolve`, { step: "form", rules: "current" })).status).toBe("ok");
+    const branch = await persona("branch");
+    const petty = await branch.c.post(`/o/${e.org}/process/start`, { process: "aftab_petty_cash", values: { u_aftab_pc_amount: "9000000", u_aftab_pc_purpose: "تعمیر صندلی‌های سالن" } }, 201);
+    await drain(e, ["flows.run", "flows.resume"], 120_000);
+    await e.db.query(`update sm_process_tasks set opened_at = now() - interval '10 days', due_at = now() - interval '1 hour' where case_id = $1 and status = 'open'`, [petty.case]);
+    await wakeTimer(e.db, e.org, Date.now());
+    await settle(e, 120_000);
+    await drain(e, ["flows.run", "flows.resume"], 120_000);
+    expect(await e.db.one(`select state, outcome from sm_process_cases where id = $1`, [projectStep.case_id])).toEqual({ state: "completed", outcome: "completed" });
+    expect((await e.db.one<{ state: string }>(`select state from sm_process_cases where id = $1`, [waiting!.id]))!.state).toBe("active");
+    expect(await e.db.one(`select state, outcome from sm_process_cases where id = $1`, [petty.case])).toEqual({ state: "canceled", outcome: "canceled" });
+    expect((await e.db.query<{ body: string }>(`select body from sm_journal where table_key = 'process_case' and record_id = $1`, [petty.case])).map((j) => j.body)).toContain("مهلت «تأیید رئیس شعبه» به پایان رسید؛ پرونده از مسیر «پایان مهلت» ادامه یافت");
     await settle(e, 180_000);
     // the platform's own computations over the pack: every XLA rescore and document ingestion ran
     await drain(e, ["slm.xla", "docs.ingest"]);
@@ -505,7 +559,8 @@ describe.skipIf(skip)(title, () => {
     log(`findings the platform raised about demo CIs outside the demo scope: ${raised!.n}`);
 
     // ----- purge
-    const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
+    const registryBefore = await e.db.query<{ id: string; tbl: string }>(`select row_id::text as id, tbl from sm_demo_rows where org_id = $1`, [e.org]);
+    const demoRowIds = new Set(registryBefore.map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
     // the console confirms the administrator's password right before the purge (sensitive administration, POST
@@ -537,11 +592,28 @@ describe.skipIf(skip)(title, () => {
     const kept = new Set<string>();
     // rows of the organisation's own work, made or changed meanwhile (their history stays with them)
     for (const t of REAL_WORK) for (const [k, h] of after.get(t) ?? []) if (before.get(t)?.get(k) !== h) kept.add(k);
+    // the organisation's own capture of its own items' costs (OWN_CAPTURE), with their history
+    const ownCapture = new Set<string>();
+    {
+      const existed = new Set([...before.values()].flatMap((m) => [...m.keys()]));
+      const made = [...(after.get(OWN_CAPTURE)?.keys() ?? [])].filter((k) => !before.get(OWN_CAPTURE)?.has(k));
+      const rows = await e.db.query<{ id: string; j: string; created_by: string | null; key: string | null }>(
+        `select x.id::text as id, to_jsonb(x)::text as j, x.created_by::text as created_by, x.source_key as key from ${OWN_CAPTURE} x where x.id::text = any($1::text[])`,
+        [`{${made.join(",")}}`],
+      );
+      for (const r of rows) {
+        const item = r.key?.match(UUID)?.[0];
+        const named = r.j.match(new RegExp(UUID.source, "g")) ?? [];
+        if (!r.created_by && item && existed.has(item) && !named.some((id) => demoRowIds.has(id))) ownCapture.add(r.id);
+      }
+      for (const id of ownCapture) kept.add(id);
+    }
     const allowed = async (line: string): Promise<boolean> => {
       const t = line.split(":")[0];
       if (REAL_WORK.has(t)) return true;
       const added = [...(after.get(t)?.keys() ?? [])].filter((k) => !before.get(t)?.has(k));
       const changed = [...(before.get(t)?.keys() ?? [])].filter((k) => !after.get(t)?.has(k) || after.get(t)!.get(k) !== before.get(t)!.get(k));
+      if (t === OWN_CAPTURE) return !changed.length && added.every((k) => ownCapture.has(k));
       if (RAG_INDEX.has(t)) {
         const ids = [...added, ...changed];
         const now = await e.db.query<{ id: string; record_id: string }>(`select id::text as id, record_id::text as record_id from ${t} where id::text = any($1::text[])`, [`{${ids.join(",")}}`]);
@@ -595,6 +667,31 @@ describe.skipIf(skip)(title, () => {
     // nothing names the pack any more
     expect((await e.db.query(`select 1 from sm_users where email like '%aftab-bank.example'`)).length).toBe(0);
     expect((await e.db.query(`select 1 from sm_demo_rows`)).length).toBe(0);
+    // the purged-id ledger: content-free (ids and table names), the pack's rows that went (no job: a job never reaches a
+    // Windows app), none of them alive, and its own clean-up queued
+    const columns = await e.db.query<{ c: string }>(`select column_name as c from information_schema.columns where table_schema = current_schema() and table_name = 'sm_demo_purged' order by ordinal_position`);
+    expect(columns.map((c) => c.c)).toEqual(["org_id", "row_id", "tbl", "purged_at"]);
+    const ledger = await e.db.query<{ id: string; tbl: string }>(`select row_id::text as id, tbl from sm_demo_purged where org_id = $1`, [e.org]);
+    expect(ledger.length).toBeGreaterThan(1000);
+    expect(ledger.filter((r) => r.tbl === "sm_jobs")).toEqual([]);
+    // what the registry held before the purge is in the ledger — but its jobs and what stays (the trail of real records)
+    const ledgered = new Set(ledger.map((r) => r.id));
+    const notLedgered = new Map<string, string[]>();
+    for (const r of registryBefore) {
+      if (r.tbl === "sm_jobs" || ledgered.has(r.id)) continue;
+      const ids = notLedgered.get(r.tbl) ?? [];
+      if (!ids.length) notLedgered.set(r.tbl, ids);
+      ids.push(r.id);
+    }
+    for (const [tbl, ids] of notLedgered) {
+      const alive = await e.db.one<{ n: number }>(`select count(*)::int as n from ${tbl} where id = any($1::uuid[])`, [`{${ids.join(",")}}`]);
+      expect(alive!.n, `${tbl}: rows gone that are not in the ledger`).toBe(ids.length);
+    }
+    for (const tbl of new Set(ledger.map((r) => r.tbl))) {
+      const alive = await e.db.one<{ n: number }>(`select count(*)::int as n from ${tbl} x join sm_demo_purged p on p.org_id = $1 and p.row_id = x.id`, [e.org]);
+      expect(alive!.n, `${tbl}: ledgered rows alive`).toBe(0);
+    }
+    expect(newJobs.filter((j) => j.kind === "demo.ledger").length).toBe(1);
   }, 1_800_000);
 });
 }

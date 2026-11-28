@@ -8,5 +8,7 @@ export { PositionPicker, heldIn, type PositionPickerProps } from "./PositionPick
 export { AssigneePicker, AssigneeRules, type AssigneeContext, type AssigneePickerProps } from "./AssigneePicker";
 export { FilesInput, FilesValue, RecordFilesInput, type FileItem, type FilesFieldLike, type FilesInputProps } from "./FilesInput";
 export { ProcessNodeIcon, StepStatusIcon } from "./icons";
-export { kitApi, ESTIMATE_GATES, type EstimateResult, type HolderRow, type PositionRow } from "./api";
+export { kitApi, ESTIMATE_GATES, type EstimateResult, type HolderRow, type MemberRow, type PositionRow } from "./api";
+export { DEMO_PEOPLE_GATES, DEMO_PEOPLE_KEY, DemoTag, demoSet, isDemo, useDemoPeople } from "./demo";
+export { MemberSelect, type MemberSelectProps } from "./MemberSelect";
 export * from "./model";

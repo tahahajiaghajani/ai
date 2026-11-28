@@ -196,7 +196,7 @@ export async function systemLogs(ctx: Ctx, kind: LogKind, f: { status?: string |
 /** The organisation's own failed or queued jobs: retry or cancel (audited). */
 export async function orgJobAction(ctx: Ctx, id: string, action: "retry" | "cancel") {
   ctx.need("settings", "full");
-  const r = action === "retry" ? await retryJob(ctx.db, id, ctx.org.id) : await cancelJob(ctx.db, id, ctx.org.id);
+  const r = action === "retry" ? await retryJob(ctx.db, id, ctx.org.id) : await cancelJob(ctx.cfg, id, ctx.org.id);
   await audit(ctx.db, ctx, `job_${action}`, "job", r.id, `${action === "retry" ? "اجرای دوباره" : "لغو"} کار ${r.kind}`);
   return r;
 }

@@ -3,8 +3,8 @@
 // `npm run start:local` for development and by the end-to-end tests.
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
@@ -12,13 +12,15 @@ import { createApp } from "@server/app";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { consoleLogger, type Logger, type ServerConfig } from "@server/context";
 import { isBackgroundRequest } from "@server/http/hono";
-import { stopTicks, tick } from "@server/jobs";
+import { releaseStaleClaims, stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { extractBackup } from "./backup-stream";
+import { startupMaintenance } from "./maintenance";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
-import { inspectDatabase, type DatabaseOpening } from "./db-open";
+import { inspectDatabase, NO_DATABASE, type DatabaseOpening } from "./db-open";
 import { startStallWatch } from "./stall";
 import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
@@ -103,6 +105,38 @@ export function stallPath(path: string): string {
     .join("/");
 }
 
+const MB = 1024 * 1024;
+
+/** The backup a scheduled restore names (restore.pending holds its path, ./backup.ts), read before the marker is taken. */
+function scheduledBackup(dataDir: string): string {
+  try {
+    return readFileSync(join(dataDir, "restore.pending"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+/** A file's size in MB for app.log (0 when it cannot be read). */
+function sizeMb(file: string): number {
+  try {
+    return Math.round(statSync(file).size / MB);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * app.log's line of the open (tests/desktop-start.test.ts): the log's size and what pg_control says about the last close
+ * — closed cleanly, not, or why that cannot be told —, with its state's number (./db-open.ts).
+ */
+function openingLine(o: DatabaseOpening): string {
+  const head = `opening the database: write-ahead log ${o.walMb} MB`;
+  if (o.recovery === false) return `${head}; closed cleanly (state ${o.state})`;
+  if (o.recovery === true) return `${head}; not closed cleanly (state ${o.state}), so its log is replayed first`;
+  if (o.unknown === NO_DATABASE) return `${head}; ${NO_DATABASE}`;
+  return `${head}; state unknown (${o.unknown}), so a replay may come first`;
+}
+
 export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   const log = opts.log ?? consoleLogger;
   const t0 = performance.now();
@@ -118,19 +152,29 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   };
   // The database's open, told before it begins: PGlite opens it synchronously on this thread, and a database that was
   // not closed cleanly first replays its write-ahead log — minutes for gigabytes —, so this is the last the Electron main
-  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A restore opens the
-  // backup, not this folder.
-  const restoring = !opts.memory && restorePending(opts.dataDir);
-  const opening: DatabaseOpening = opts.memory || restoring ? { walMb: 0, recovery: null } : inspectDatabase(dbDir);
-  if (!opts.memory) {
-    const what = restoring ? "; restoring a backup" : opening.recovery ? "; not closed cleanly, so its log is replayed first" : "";
-    log.info(`opening the database: write-ahead log ${opening.walMb} MB${what}`);
-  }
-  tell({ phase: "database", walMb: opening.walMb, recovery: opening.recovery });
+  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A scheduled restore loads
+  // its backup instead of this folder when the backup is there; a marker that names none (a file gone with its USB drive)
+  // is dropped below, and this folder opens and is inspected like any other. This folder is set aside, and the backup
+  // extracted into a new one as a stream (extractBackup below), only after the phase is told: a large backup on a slow
+  // disk then takes its time within the open, which the main process waits for as long as it takes, not within the 90 s
+  // before it. The phase says `restore`: a restore cut short is not done again at the next start (its marker is gone;
+  // that start puts this folder back, restore.running of ./backup.ts), so the splash asks in those words before it closes
+  // meanwhile.
+  const scheduled = !opts.memory && restorePending(opts.dataDir);
+  const backupFile = scheduled ? scheduledBackup(opts.dataDir) : "";
+  const restoring = !!backupFile && existsSync(backupFile);
+  const opening: DatabaseOpening = opts.memory || restoring ? { walMb: 0, recovery: null, state: null, unknown: restoring ? "restoring a backup" : "in memory" } : inspectDatabase(dbDir);
+  if (scheduled && !restoring) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
+  if (restoring) log.info(`opening the database: restoring a backup (${basename(backupFile)}, ${sizeMb(backupFile)} MB)`);
+  else if (!opts.memory) log.info(openingLine(opening));
+  tell({ phase: "database", walMb: opening.walMb, recovery: opening.recovery, ...(restoring ? { restore: true as const } : {}) });
   // the line and the message are on their way before the open holds the thread
   if (!opts.memory) await new Promise<void>((r) => nextTurn(r));
   const openStart = performance.now();
-  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
+  // the scheduled restore taken (./backup.ts): an earlier start's restore cut short settled first (its database put
+  // back), the marker dropped, this folder set aside (the backup is extracted below)
+  const restore = opts.memory ? null : takePendingRestore(opts.dataDir, log);
+  if (restoring && !restore) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
   // a first start: the database made at build time, when the app carries one
   const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
   let fromTemplate = false;
@@ -154,7 +198,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   } else if (restore) {
     log.info("restoring database from backup");
     try {
-      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log, loadDataDir: new Blob([new Uint8Array(restore.data)]) });
+      await extractBackup(restore.file, dbDir, log);
+      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
     } catch (e) {
       // a broken backup must not leave an empty database behind: keep working on the current one
       log.error("restore failed; the current database is kept", String((e as Error)?.message ?? e));
@@ -174,6 +219,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
   if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));
   const migrated = performance.now();
+  // the database's upkeep before ready (./maintenance.ts): ~1 ms unless much was written since its last look
+  db = (await startupMaintenance(db, { dataDir: opts.dataDir, dbDir, log, memory: opts.memory, notify: () => tell({ phase: "migrations", maintenance: true }) })).db;
 
   // the single-page app's files (src/server-edition/static.ts: ETags, the SPA fallback, never outside the folder)
   const site = createStaticSite(opts.staticDir, () => `<!doctype html><meta charset=utf-8><title>${APP_NAME}</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>`, { cacheControl: desktopCacheControl });
@@ -187,6 +234,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // browser session's — and never a token client, a probe or anyone without a session there (PERFORMANCE_FA §19)
   let fromWindow = 0;
   let signedIn = 0;
+  /** when a person's request (the window's, or a signed-in browser's of the office network) last began or ended */
+  let lastPerson = performance.now();
   const cfg: ServerConfig = {
     mode: "desktop",
     db,
@@ -197,9 +246,14 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     desktop: bridge,
     log,
     fetch: globalThis.fetch.bind(globalThis),
-    foreground: { started: () => void signedIn++, ended: () => void signedIn-- },
+    foreground: { started: () => void ((lastPerson = performance.now()), signedIn++), ended: () => void ((lastPerson = performance.now()), signedIn--) },
   };
   const api = createApp(cfg);
+  // the jobs the last process held when it ended abruptly (a shutdown, a crash; their heartbeat kept their locks a few
+  // minutes ahead): this process is the database's only one, so the first tick takes them again — or fails them at
+  // their last attempt, with their kind's exhausted hook — at once
+  const released = await releaseStaleClaims(db).catch(() => 0);
+  if (released) log.info(`job queue: ${released} job(s) the last run left running are taken again`);
   // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
   const jobTimer = setInterval(() => {
     void tick(cfg, { budgetMs: 8000, busy: () => fromWindow > 0 || signedIn > 0 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));
@@ -223,10 +277,12 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   app.use("/api/*", async (c, next) => {
     if (isBackgroundRequest(c) || !windowRequest(peerOf(c), c.req.header("authorization"))) return next();
     fromWindow++;
+    lastPerson = performance.now();
     try {
       await next();
     } finally {
       fromWindow--;
+      lastPerson = performance.now();
     }
   });
   // Who may reach the API. Before the first account exists every request is trusted as the
@@ -298,6 +354,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     onGap: (gap) => log.info(`no timer of the local server ran for ${Math.round(gap / 1000)} s: the computer slept or the process was paused`),
   });
   bridge.start(url);
+  bridge.watchPeople(() => (fromWindow > 0 || signedIn > 0 ? 0 : performance.now() - lastPerson));
 
   return {
     url,

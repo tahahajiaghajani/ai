@@ -1,5 +1,6 @@
 // HTTP client for the API (same origin on web and desktop). Errors carry the server's Persian
 // message so screens can show it as is.
+import { docNo } from "./fa";
 
 export class ApiError extends Error {
   constructor(
@@ -50,6 +51,16 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
 /** Was there no input for a while (requests sent now are the screen's own)? */
 export const inBackground = (now = Date.now()) => now - lastInput > ACTIVE_MS;
 
+/**
+ * A gateway's own answer with no error of ours in it (Vercel's 504 page when a function ran out of time, a 502/503 of
+ * the platform): words the person can act on instead of «خطای 504».
+ */
+function gatewayError(status: number): ApiError | null {
+  if (status === 504) return new ApiError(504, "gateway_timeout", "سرور در زمان مقرر پاسخ نداد (خطای ۵۰۴)؛ چند لحظهٔ دیگر دوباره امتحان کنید");
+  if (status === 502 || status === 503) return new ApiError(status, "unavailable", `سرور اکنون در دسترس نیست (خطای ${docNo(status)})؛ چند لحظهٔ دیگر دوباره امتحان کنید`);
+  return null;
+}
+
 async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false): Promise<T> {
   let res: Response;
   try {
@@ -78,6 +89,10 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     }
     // only a missing or ended session signs the screens out (not a refused password or a re-authentication)
     if (res.status === 401 && (e?.code ?? "unauthorized") === "unauthorized" && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
+    if (!e) {
+      const g = gatewayError(res.status);
+      if (g) throw g;
+    }
     throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
   }
   return data as T;
@@ -112,6 +127,10 @@ async function openStream(path: string, body: unknown, signal?: AbortSignal): Pr
     }
     const e = data?.error;
     if (res.status === 401) window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
+    if (!e) {
+      const g = gatewayError(res.status);
+      if (g) throw g;
+    }
     throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
   }
   if (!res.body) throw new ApiError(0, "network", "پاسخ سرور خوانده نشد؛ دوباره تلاش کنید");

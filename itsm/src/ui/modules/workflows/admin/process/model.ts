@@ -30,8 +30,8 @@ import { SEP } from "../../../../lib/fa";
 import type { ChipTone } from "../../../../components/display";
 import { ESTIMATE_GATES } from "../../kit/api";
 import {
-  NODE_H, NODE_W, connect, connectProblem, connectTargets, defaultProcessConfig, disconnect, edgeId, isPlaced, layoutProcess, newNodeId, nodeTitle, readingOrder, removeSteps,
-  ruleInScope, type RuleScope,
+  NODE_H, NODE_W, connect, connectProblem, connectTargets, defaultProcessConfig, defaultStepRights, disconnect, edgeId, isPlaced, layoutProcess, newNodeId, nodeTitle, readingOrder,
+  removeSteps, ruleInScope, type RuleScope,
 } from "../../kit/model";
 import type { AccessProbe } from "../fields/model";
 import type { DraftInput, ProcessDetail, ProcessDraft, ProcessOut, ResolveBody, ResolveResult, VersionRow } from "./api";
@@ -196,12 +196,15 @@ export const PALETTE_GROUPS: { group: string; items: PaletteItem[] }[] = [
 export const PALETTE_ITEMS: PaletteItem[] = PALETTE_GROUPS.flatMap((g) => g.items);
 export const paletteItem = (key: string): PaletteItem | null => PALETTE_ITEMS.find((i) => i.key === key) ?? null;
 
-/** The settings a palette item's step starts with (an approval: «یک نفر کافی است», the requester kept out). */
+/**
+ * The settings a palette item's step starts with: an approval «یک نفر کافی است» (the requester kept out); a «تکمیل فرم»
+ * its fields to fill, a review and an approval theirs to read (`defaultStepRights`).
+ */
 export function itemConfig(item: Pick<PaletteItem, "key" | "type">): Record<string, unknown> {
   const base = defaultProcessConfig(item.type);
   if (item.type !== "form_step") return base;
-  if (item.key === "approve") return { ...base, action: "approve", quorum: "any" };
-  if (item.key === "review") return { ...base, action: "review" };
+  if (item.key === "approve") return { ...base, action: "approve", quorum: "any", rights: defaultStepRights("approve") };
+  if (item.key === "review") return { ...base, action: "review", rights: defaultStepRights("review") };
   return base;
 }
 
@@ -405,6 +408,10 @@ export function setAction(g: ProcessGraph, id: string, action: StepAction): Proc
   const n = nodeOf(g, id);
   if (!n || n.type !== "form_step" || n.config?.start === true) return g;
   const config: Record<string, unknown> = { ...(n.config ?? {}), action };
+  // rights nobody has set yet (the ones the old action starts with) follow the action: a fill step's fields to fill,
+  // an approval's or a review's to read; rights someone set stay
+  const was = formStepOf(n.config);
+  if (stableJson(was.rights) === stableJson(defaultStepRights(was.action))) config.rights = defaultStepRights(action);
   if (action === "approve") {
     if (!config.quorum) config.quorum = "any";
   } else {
@@ -454,6 +461,20 @@ export function earlierSteps(g: ProcessGraph, id: string): { id: string; label: 
   const titles = stepTitles(g);
   return (s.order ?? g.nodes.map((n) => n.id)).filter((x) => x !== id && before.has(x) && nodeOf(g, x)?.type === "form_step").map((x) => ({ id: x, label: titles.get(x) ?? x }));
 }
+
+/**
+ * Does an «انتظار» wait in business time? Only when its `business` is true — the engine counts calendar time otherwise
+ * (flows/nodes.ts), so a draft made elsewhere without the key must not show «به وقت کاری» ticked.
+ */
+export const waitsInBusinessTime = (config: unknown): boolean => isObj(config) && config.business === true;
+
+/**
+ * Does a form step keep a time — «مهلت انجام», «یادآوری هر» or «تشدید»? Its «به وقت کاری» counts all three (the
+ * engine's process.timer: the deadline, the escalations and, since 1.1.5, the reminders), so the switch is offered
+ * whenever one is set, not only with a deadline.
+ */
+export const keepsTime = (step: { due?: unknown; remind_every?: unknown; escalate?: readonly unknown[] | null }): boolean =>
+  !!(step.due || step.remind_every || step.escalate?.length);
 
 /** «پیوستن»: after every branch, or after the first (which must withdraw the others). */
 export const joinPatch = (mode: "all" | "any"): Record<string, unknown> => (mode === "any" ? { mode, cancel_rest: true } : { mode, cancel_rest: undefined });
@@ -803,12 +824,24 @@ export function resolveBody(
  */
 export const previewBlocked = (node: ProcessNode): string | null => assigneeProblems(assigneesOf(node.config))[0]?.message ?? null;
 
-/** The line a step shows in «پیش‌نمایش»: its first person («علی احمدی — رئیس شعبه (شعبهٔ ونک)») and how many more, or why nobody. */
+/**
+ * The line a step shows in «پیش‌نمایش»: its first person («علی احمدی — رئیس شعبه (شعبهٔ ونک)») and how many more, or
+ * that nobody is found — in a preview's words («کسی پیدا نمی‌شود»), never the case journal's («…؛ مسئولان گردش‌کار
+ * باخبر شدند»: nobody was told anything).
+ */
 export function previewNote(r: Pick<ResolveResult, "status" | "lines" | "message">): string {
-  if (r.status === "nobody" || r.status === "too_many") return r.message ?? "کسی پیدا نشد";
-  if (!r.lines.length) return "کسی پیدا نشد";
+  if (r.status === "too_many") return r.message ?? "بیش از اندازه نفر پیدا می‌شود";
+  if (r.status === "nobody" || !r.lines.length) return "کسی پیدا نمی‌شود";
   const more = r.lines.length > 1 ? ` و ${fa(r.lines.length - 1)} نفر دیگر` : "";
   return `${r.lines[0]}${more}`;
+}
+
+/** «پیش‌نمایش»'s warning above the steps: the steps that find nobody for the sample requester, or null. */
+export function previewSummary(steps: readonly ProcessNode[], found: Readonly<Record<string, { result?: Pick<ResolveResult, "status"> } | undefined>> | undefined): string | null {
+  const empty = steps.filter((n) => found?.[n.id]?.result?.status === "nobody");
+  if (!empty.length) return null;
+  const names = empty.map((n) => `«${nodeTitle(n)}»`);
+  return empty.length === 1 ? `با این درخواست‌دهنده برای ${names[0]} کسی پیدا نمی‌شود.` : `با این درخواست‌دهنده برای ${fa(empty.length)} مرحله کسی پیدا نمی‌شود: ${names.join("، ")}.`;
 }
 
 /** The people a step found, as the next steps' actors. */

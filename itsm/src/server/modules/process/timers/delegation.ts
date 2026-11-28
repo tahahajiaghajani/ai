@@ -8,11 +8,13 @@
 //     delegate is told «مرحله‌ای به جانشینی از … منتظر شماست»;
 //   · at the end it moves back if it is still open.
 // Each move is journaled on the case, and the case's participants are recomputed (§3.6.5): the delegate reads the
-// case while the task is theirs, through the participant source `process`.
+// case while the task is theirs, through the participant source `process`. A demo pack's case moves inside its demo
+// scope, any other outside it.
 import { exclusionsOf } from "@shared/process/assignees";
 import { formStepOf, processNodeLabel } from "@shared/process/graph";
 import type { ServerConfig } from "../../../context";
 import { pgArray, type Queryable } from "../../../db";
+import { inDemoScope, isDemoRow } from "../../../db/scope";
 import { systemCtx, updateIn, type RecordEvent } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import { notifyPeople } from "../../notify/deliver";
@@ -20,6 +22,7 @@ import { Resolution } from "../../positions";
 import { processesRunHere, refreshCase, resolveInput } from "../engine";
 import { caseJournal } from "../engine/journal";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames } from "../engine/store";
+import { titled } from "./timer";
 
 export const DELEGATION_JOB = "process.delegation";
 
@@ -76,7 +79,10 @@ export async function reresolveTasks(cfg: ServerConfig, orgId: string, users: re
   const sys = await systemCtx(cfg, orgId);
   let moved = 0;
   for (const { case_id } of cases) {
-    moved += await sys.write(async (tx) => {
+    // a case of the demo pack's is moved inside its demo scope (its journal and notices are the pack's), any other
+    // outside it, whoever queued the job
+    const demo = await isDemoRow(cfg.db, orgId, String(case_id));
+    moved += await inDemoScope(demo ? orgId : null, () => sys.write(async (tx) => {
       const kase = await lockCase(tx, orgId, String(case_id));
       if (!kase || (kase.state !== "active" && kase.state !== "waiting")) return 0;
       const version = await loadVersionInfo(tx, orgId, kase.version_id);
@@ -105,7 +111,7 @@ export async function reresolveTasks(cfg: ServerConfig, orgId: string, users: re
           await caseJournal(tx, sys, kase, `«${label}» به جانشینی از ${name(principal)} به ${name(r.user)} سپرده شد`, { data: { task: t.id, from: was, to: r.user } });
           await notifyPeople(tx, orgId, {
             table: "process_case", id: kase.id, users: [r.user], event: "custom", label: "مرحله‌ای به جانشینی", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
-            subject: `مرحله‌ای به جانشینی از ${name(principal)} منتظر شماست`, body: `«${label}» از پروندهٔ ${kase.number ?? ""} «${kase.title ?? ""}»`,
+            subject: `مرحله‌ای به جانشینی از ${name(principal)} منتظر شماست`, body: `«${label}» از پروندهٔ ${kase.number ?? ""}${titled(kase)}`,
           });
         } else {
           await caseJournal(tx, sys, kase, `جانشینی پایان یافت؛ «${label}» به ${name(r.user)} بازگشت`, { data: { task: t.id, from: was, to: r.user } });
@@ -114,7 +120,7 @@ export async function reresolveTasks(cfg: ServerConfig, orgId: string, users: re
       }
       if (n) await refreshCase(tx, sys, kase, version.graph, { tasks });
       return n;
-    });
+    }));
   }
   return moved;
 }

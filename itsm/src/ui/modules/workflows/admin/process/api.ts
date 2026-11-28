@@ -122,7 +122,8 @@ export interface ResolveResult {
   message: string | null;
   warnings: string[];
   lines: string[];
-  display: { users: Record<string, string>; positions: Record<string, string>; units: Record<string, string>; groups: Record<string, string> };
+  /** `demo`: the demo pack's people among `users` (lower-case ids; release 1.1.5) */
+  display: { users: Record<string, string>; positions: Record<string, string>; units: Record<string, string>; groups: Record<string, string>; demo?: string[] };
 }
 
 /** An automation a «جریان خودکار» step may run. */
