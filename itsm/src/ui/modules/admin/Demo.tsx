@@ -4,12 +4,13 @@
 // routed again), a typed confirmation and the platform's re-authentication, then a progress bar and the result. Only
 // content-free audit lines remain.
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Alert, Button, Checkbox, Input, Modal, Progress, Segmented, Switch, Table, Typography } from "antd";
 import { Database, Trash2, Upload } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { useNotify } from "../../lib/hooks";
+import { errorText } from "../../lib/api";
 import { fa } from "../../lib/fa";
 import { PageHeader } from "../../components/layout";
 import { Chip, JDateTime, Skeleton, StatCard } from "../../components/display";
@@ -286,7 +287,6 @@ function PurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => v
       setBusy(false);
     }
   };
-  const d = r.data;
   return (
     <Modal
       open
@@ -298,7 +298,44 @@ function PurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => v
       onOk={submit}
       width={640}
     >
-      {!d ? (
+      <PurgeReport report={r} typed={typed} onType={setTyped} />
+    </Modal>
+  );
+}
+
+/**
+ * The purge dialog's body: the dry run's report (GET /demo/report) and the typed confirmation. A dry run that failed
+ * (since 1.1.5 the whole plan in one request: a 503 timeout, a busy database) says why, with «تلاش دوباره», and the
+ * confirmation stays — the purge plans everything again itself (F6F7-11: a failed load is said, never a skeleton).
+ */
+export function PurgeReport({ report: r, typed, onType }: { report: Pick<UseQueryResult<Report>, "data" | "error" | "isError" | "isFetching" | "refetch">; typed: string; onType: (v: string) => void }) {
+  const d = r.data;
+  const confirm = (
+    <label className="flex flex-col gap-1">
+      <span>
+        برای تأیید، عبارت «<b>{PHRASE}</b>» را بنویسید:
+      </span>
+      <Input value={typed} onChange={(e) => onType(e.target.value)} autoFocus aria-label="عبارت تأیید" />
+    </label>
+  );
+  return (
+    <>
+      {!d && r.isError ? (
+        <div className="flex flex-col gap-3">
+          <Alert
+            type="error"
+            showIcon
+            title="پیش‌نمایش حذف آماده نشد"
+            description={`${errorText(r.error)} بی‌پیش‌نمایش هم می‌توانید حذف را آغاز کنید؛ حذف خودش دوباره بررسی می‌کند چه چیزی برداشته، پاک‌سازی یا دوباره ارجاع شود.`}
+            action={
+              <Button size="small" loading={r.isFetching} onClick={() => void r.refetch()}>
+                تلاش دوباره
+              </Button>
+            }
+          />
+          {confirm}
+        </div>
+      ) : !d ? (
         <Skeleton rows={4} />
       ) : (
         <div className="flex flex-col gap-3">
@@ -351,18 +388,15 @@ function PurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => v
                   { title: "جدول", dataIndex: "label" },
                   { title: "ردیف", dataIndex: "rows", render: (v: number) => <span className="ds-num">{fa(v)}</span> },
                   { title: "ارجاع دوباره", dataIndex: "routed", render: (v: number) => <span className="ds-num">{fa(v)}</span> },
+                  // which kept records lose a value: the server names a few of each table (clean.ts `samples`)
+                  { title: "نمونه", dataIndex: "samples", render: (v: string[] | undefined) => (v ?? []).join("، ") },
                 ]}
               />
             </>
           ) : null}
-          <label className="flex flex-col gap-1">
-            <span>
-              برای تأیید، عبارت «<b>{PHRASE}</b>» را بنویسید:
-            </span>
-            <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus aria-label="عبارت تأیید" />
-          </label>
+          {confirm}
         </div>
       )}
-    </Modal>
+    </>
   );
 }
