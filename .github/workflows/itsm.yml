@@ -49,11 +49,13 @@ jobs:
       - run: npm run check:schema
       - run: npm run build
 
-  # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes
+  # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes.
+  # tests/demo-purge-built-on.test.ts alone (three editions, each loading and purging the bank pack twice) runs
+  # about 40 minutes on a hosted runner, so a shard gets 75
   test:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
