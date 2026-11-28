@@ -192,6 +192,22 @@ export async function pendingMigrations(): Promise<{ file: string; why: string }
   return out.sort((a, b) => a.file.localeCompare(b.file));
 }
 
+/** round six's database file: the order function that charges packs and the special-day discount */
+export const ROUND_SIX = "20261128100000_celin_round_six";
+
+/** Whether a SQL file that records its own name (RECORDING_FROM on) has run: its row is in celin_migrations. */
+export async function migrationRan(name: string): Promise<boolean> {
+  await assertAdmin();
+  const c = db();
+  if (!c) return false;
+  const { data, error } = await c.from("celin_migrations").select("name").eq("name", name).maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return false;
+    throw new Error(error.message);
+  }
+  return Boolean(data);
+}
+
 export async function healthReport(): Promise<{ items: HealthItem[]; missingTables: string[]; pending: { file: string; why: string }[]; supabaseProject: string }> {
   await assertAdmin();
   const items: HealthItem[] = [];

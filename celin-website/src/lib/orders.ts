@@ -60,9 +60,13 @@ export function parsePlaceError(message: string): PlaceError {
 /**
  * Places the order with the account's price rules (celin_place_order with p_pricing and p_expect). `expect` is the
  * total the action computed from the same lines and rules (src/lib/pricing.ts invoice, which the member confirmed):
- * the database computes its own and places nothing when the two differ ('price_changed'). Until round six's
- * database file has run that function does not exist and ordering reads as «not set up yet» — never an older
- * function, which knew neither packs nor the special-day discount.
+ * the database computes its own and places nothing when the two differ ('price_changed').
+ *
+ * Until round six's database file has run that function does not exist. An order of single pieces without the
+ * special-day discount then goes to round five's function (p_pricing, no p_expect) — how the site ordered before
+ * round six: it charges such an order exactly alike (list → step, rounded per piece), and the action has already
+ * checked the member's total against its own. Packs or a running sale need the new function: such an order reads
+ * as «not set up yet», as does any order when neither function is there.
  */
 export async function placeOrder(
   userId: string,
@@ -77,10 +81,17 @@ export async function placeOrder(
   if (!lines.length) return { ok: false, error: { reason: "empty" } };
   // qty in pieces (a whole number of the line's packs) and the pack, which the database checks against the product
   const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: linePieces(l), pack: cleanPack(l.pack) }));
-  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing), p_expect: Math.round(expect) });
-  let { data, error } = await call();
-  // a deadlock (40P01) rolls the whole order back: one more try is safe
-  if (error && (error.code === "40P01" || /deadlock detected/i.test(error.message))) ({ data, error } = await call());
+  const call = async (args: Record<string, unknown>) => {
+    let r = await c.rpc("celin_place_order", args);
+    // a deadlock (40P01) rolls the whole order back: one more try is safe
+    if (r.error && (r.error.code === "40P01" || /deadlock detected/i.test(r.error.message))) r = await c.rpc("celin_place_order", args);
+    return r;
+  };
+  const base = { p_user: userId, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing) };
+  let { data, error } = await call({ ...base, p_items: items, p_expect: Math.round(expect) });
+  if (error?.code === "PGRST202" && !pricing.sale && items.every((i) => i.pack === 1)) {
+    ({ data, error } = await call({ ...base, p_items: items.map(({ pack: _, ...i }) => i) }));
+  }
   if (error) {
     if (isMissingTable(error) || error.code === "PGRST202") return { ok: false, error: { reason: "unavailable" } };
     const parsed = parsePlaceError(error.message);

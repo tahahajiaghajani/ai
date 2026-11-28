@@ -106,3 +106,92 @@ describe("a catalogue with more options than one request returns", () => {
     expect(await lowStockCount(3)).toBe(1);
   });
 });
+
+describe("ordering before round six's database file has run", async () => {
+  const { placeOrder } = await import("@/app/actions/orders");
+  const P1 = "33333333-3333-4333-8333-333333333333";
+  const customer = { name: "QA", phone: "09121234567", city: "Tehran", address: "Street 1, No 2" };
+  let calls: Record<string, unknown>[];
+
+  async function member() {
+    const u = { id: crypto.randomUUID(), phone: "09121115555", email: "", name: "QA", business: "", city: "", address: "", postal_code: "", role: "user", disabled: false, session_version: 0, password_hash: "scrypt$x", password_from_code: false, created_by_admin: false, admin_note: "", pro_at: null, created_at: new Date().toISOString() };
+    fake.table("celin_users").push(u);
+    const { codeHashes, normalizeCode } = await import("@/lib/pro");
+    const { encrypt } = await import("@/lib/crypto");
+    fake.table("celin_pro_codes").push({ id: crypto.randomUUID(), user_id: u.id, code_hash: codeHashes(normalizeCode("123456789012"))[0], code_enc: encrypt("123456789012"), hint: "9012", request_id: null, expires_at: null, redeemed_at: new Date().toISOString(), last_used_at: null, revoked_at: null, created_at: new Date().toISOString() });
+    const { sessionValue } = await import("@/lib/auth");
+    jar.set("celin_session", sessionValue(u.id, 0, Date.now(), "pw"));
+  }
+
+  /** the database as round five left it: only the five-argument function (no p_expect) */
+  function roundFive(sale = false) {
+    fake.table("celin_settings").push({ key: "catalog", value: { initialized: true } });
+    if (sale) fake.table("celin_settings").push({ key: "sale", value: { enabled: true, pct: 10, title_fa: "جشن یلدا", title_en: "Yalda", text_fa: "", text_en: "", tone: "pomegranate", color: "", from: "", until: "", pro: true, link: "" } });
+    fake.table("celin_products").push({ id: P1, price: 1_000_000, stock: 50, status: "published" });
+    calls = [];
+    fake.rpcs.celin_place_order = (a) => {
+      calls.push(a);
+      if ("p_expect" in a) return { data: null, error: { message: "Could not find the function public.celin_place_order(p_customer, p_expect, p_items, p_note, p_pricing, p_user)", code: "PGRST202" } };
+      return { data: [{ order_id: crypto.randomUUID(), order_code: "CL-555555" }], error: null };
+    };
+  }
+
+  it("single pieces without a sale go to round five's function, as the site ordered before", async () => {
+    roundFive();
+    await member();
+    const r = await placeOrder({ lines: [{ productId: P1, variantId: null, qty: 3 }], customer, lang: "fa" });
+    expect(r).toMatchObject({ ok: true, code: "CL-555555" });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toHaveProperty("p_expect");
+    expect(calls[1]).not.toHaveProperty("p_expect");
+    expect(calls[1]).toMatchObject({ p_items: [{ product_id: P1, variant_id: "", qty: 3 }], p_pricing: { level: "member", list: 200 } });
+    expect((calls[1].p_items as object[])[0]).not.toHaveProperty("pack");
+    expect(calls[1].p_pricing).not.toHaveProperty("sale");
+  });
+
+  it("the older function's own refusals read as usual", async () => {
+    roundFive();
+    await member();
+    fake.rpcs.celin_place_order = (a) => ("p_expect" in a ? { data: null, error: { message: "missing", code: "PGRST202" } } : { data: null, error: { message: `out_of_stock:${P1}` } });
+    expect(await placeOrder({ lines: [{ productId: P1, variantId: null, qty: 3 }], customer, lang: "fa" })).toMatchObject({ ok: false, reason: "out_of_stock", itemId: P1 });
+  });
+
+  it("packs need the new function: «not set up yet», and nothing goes to the older one", async () => {
+    roundFive();
+    await member();
+    const r = await placeOrder({ lines: [{ productId: P1, variantId: null, qty: 2, pack: 4 }], customer, lang: "fa" });
+    expect(r).toMatchObject({ ok: false, reason: "unavailable", error: expect.stringContaining("راه‌اندازی نشده") });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("so does a running special-day discount", async () => {
+    roundFive(true);
+    await member();
+    const r = await placeOrder({ lines: [{ productId: P1, variantId: null, qty: 3 }], customer, lang: "en" });
+    expect(r).toMatchObject({ ok: false, reason: "unavailable", error: expect.stringContaining("not set up yet") });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("with neither function there, ordering reads as «not set up yet»", async () => {
+    roundFive();
+    await member();
+    fake.rpcs.celin_place_order = (a) => {
+      calls.push(a);
+      return { data: null, error: { message: "missing", code: "PGRST202" } };
+    };
+    expect(await placeOrder({ lines: [{ productId: P1, variantId: null, qty: 3 }], customer, lang: "fa" })).toMatchObject({ ok: false, reason: "unavailable" });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("once the file has run, only the new function is called", async () => {
+    roundFive();
+    await member();
+    fake.rpcs.celin_place_order = (a) => {
+      calls.push(a);
+      return { data: [{ order_id: crypto.randomUUID(), order_code: "CL-666666" }], error: null };
+    };
+    expect(await placeOrder({ lines: [{ productId: P1, variantId: null, qty: 3 }], customer, lang: "fa" })).toMatchObject({ ok: true, code: "CL-666666" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toHaveProperty("p_expect");
+  });
+});

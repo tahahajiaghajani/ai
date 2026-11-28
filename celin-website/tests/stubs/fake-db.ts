@@ -13,6 +13,8 @@ export class FakeDb {
   tables: Record<string, Row[]> = {};
   /** PostgREST's max-rows: the most rows one read returns (no error, no hint) */
   maxRows = 1000;
+  /** tables that do not exist yet (a database before their SQL file): every request fails like PostgREST (PGRST205) */
+  missingTables = new Set<string>();
   /** how many reads each table answered (to see that a long list was read page by page) */
   reads: Record<string, number> = {};
   columns: Record<string, string[]> = {};
@@ -159,6 +161,7 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
   }
 
   private run(): { data: unknown; error: { message: string; code?: string } | null; count?: number } {
+    if (this.db.missingTables.has(this.name)) return { data: null, error: { message: `Could not find the table 'public.${this.name}' in the schema cache`, code: "PGRST205" } };
     const t = this.db.table(this.name);
     const match = (r: Row) => this.filters.every((f) => f(r));
     let rows: Row[];

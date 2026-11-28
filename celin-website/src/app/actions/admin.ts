@@ -7,6 +7,7 @@ import { signIn } from "@/app/actions/account";
 import { canActivateAdmin, checkPassword, endSession, isAdminDevice, markAdminDevice, startSession } from "@/lib/admin-auth";
 import { USERS, endUserSession, isAdminRow, sessionState, startUserSession } from "@/lib/auth";
 import { cleanKey, guard } from "@/lib/admin-action";
+import { migrationRan, ROUND_SIX } from "@/lib/admin-data";
 import { encrypt, hashIp } from "@/lib/crypto";
 import { db, isMissingColumn, UserError } from "@/lib/db";
 import { sendEmail, mailHtml } from "@/lib/email";
@@ -236,6 +237,12 @@ export async function saveSale(input: Record<string, unknown>): Promise<Result> 
       pro: bool(input.pro),
       link: siteLink(input.link, "نوار تخفیف"),
     };
+    // only round six's order function charges the sale: switched on before that file, the bar and the members' prices
+    // would show a discount no order could be placed at (off, the settings save and wait). The file name is isolated
+    // left-to-right (LRI…PDI): in this RTL line its leading digits would otherwise land after the words.
+    if (enabled && !(await migrationRan(ROUND_SIX))) {
+      throw new UserError(`تخفیف روزهای خاص پس از اجرای فایل \u2066${ROUND_SIX}.sql\u2069 در Supabase روشن می‌شود؛ «اتصالات» را ببینید. تا آن زمان می‌توانید آن را خاموش ذخیره کنید.`);
+    }
     await saveSettings("sale", sale);
     refresh();
     const state = saleState(sale, Date.now());

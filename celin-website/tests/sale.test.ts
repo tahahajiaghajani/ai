@@ -162,13 +162,32 @@ async function signIn(u: { id: string; session_version: number }) {
 describe("Admin → «نوار تخفیف روزهای خاص»", async () => {
   const { saveSale, resetSettingsGroup } = await import("@/app/actions/admin");
   const stored = () => fake.table("celin_settings").find((r) => r.key === "sale")?.value as SaleSettings | undefined;
+  // round six's database file has run (its order function charges the sale)
+  const roundSix = () => fake.table("celin_migrations").push({ name: "20261111100000_celin_membership_pro" }, { name: "20261128100000_celin_round_six" });
 
   it("goes through guard(): no admin, nothing saved", async () => {
+    roundSix();
     expect(await saveSale({ enabled: true, pct: 10 })).toMatchObject({ ok: false });
     expect(stored()).toBeUndefined();
   });
 
+  it("is switched on only once round six's database file has run; off, it saves and waits", async () => {
+    await signIn(account({ role: "admin", phone: "09121119997" }));
+    fake.table("celin_migrations").push({ name: "20261111100000_celin_membership_pro" });
+    const r = await saveSale({ enabled: true, pct: 10, title_fa: "جشن یلدا" });
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining("20261128100000_celin_round_six.sql") });
+    expect((r as { error: string }).error).toContain("«اتصالات»");
+    expect(stored()).toBeUndefined();
+    // prepared while off: saved, and nothing is advertised or discounted
+    expect(await saveSale({ enabled: false, pct: 10, title_fa: "جشن یلدا" })).toMatchObject({ ok: true, message: expect.stringContaining("خاموش") });
+    expect(stored()).toMatchObject({ enabled: false, pct: 10, title_fa: "جشن یلدا" });
+    // a database from before the migrations table reads as not run either
+    fake.missingTables.add("celin_migrations");
+    expect(await saveSale({ enabled: true, pct: 10 })).toMatchObject({ ok: false, error: expect.stringContaining("اتصالات") });
+  });
+
   it("stores whole Tehran days, the colour and the words", async () => {
+    roundSix();
     await signIn(account({ role: "admin", phone: "09121119999" }));
     const r = await saveSale({ enabled: true, pct: "۱۵", title_fa: " جشن یلدا ", title_en: "Yalda", text_fa: "روی همه‌ی آثار", tone: "custom", color: "#0B3A39", from: "۱۴۰۵/۰۹/۳۰", until: "1405/10/02", pro: false, link: "/shop" });
     expect(r).toMatchObject({ ok: true });
@@ -189,6 +208,7 @@ describe("Admin → «نوار تخفیف روزهای خاص»", async () => {
   });
 
   it("refuses what would not work, with a message", async () => {
+    roundSix();
     await signIn(account({ role: "admin", phone: "09121119998" }));
     expect(await saveSale({ enabled: true, pct: 0 })).toMatchObject({ ok: false, error: "درصد تخفیف را بین ۱ تا ۹۰ بنویسید." });
     expect(await saveSale({ enabled: true, pct: 95 })).toMatchObject({ ok: true }); // capped at 90

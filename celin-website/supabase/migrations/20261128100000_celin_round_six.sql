@@ -19,7 +19,8 @@
 --      nothing is placed ('price_changed'), so a member is never charged anything but what was shown;
 --    - the order keeps what was applied in pricing (sale, and the subtotal at the step before the sale).
 --    The five-argument function is dropped: it knew neither packs nor the sale (an older deployment of the site
---    can no longer place orders; the new site refuses orders until this file has run).
+--    can no longer place orders). Until this file has run, the new site places orders of single pieces without
+--    a sale through it — it charges those alike — and refuses the rest; the sale can be switched on only after.
 
 -- ------------------------------------------------------------------ 1. the turning opening
 alter table public.celin_slots add column if not exists gallery uuid[];
