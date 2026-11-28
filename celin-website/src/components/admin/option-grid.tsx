@@ -18,8 +18,12 @@ import { Picture } from "@/components/ui/picture";
  * not, stock, its own price (empty = the product's), SKU and picture — with bulk fill for all rows or one colour.
  */
 
-/** A row of the editor: a stored or new option; `off` = a combination of the grid that is not made (not saved). */
-export type VariantRow = Omit<AdminVariant, "sort"> & { k: number; off?: boolean };
+/**
+ * A row of the editor: a stored or new option; `off` = a combination of the grid that is not made (not saved);
+ * `orig` = the combination a stored option was opened with (syncCombos reuses it only for that combination, or for it
+ * with a whole axis added or dropped).
+ */
+export type VariantRow = Omit<AdminVariant, "sort"> & { k: number; off?: boolean; orig?: VariantOptions };
 export type Axes = Record<OptionAxis, string[]>;
 
 export const NO_AXES: Axes = { plating: [], stone: [], leather: [] };

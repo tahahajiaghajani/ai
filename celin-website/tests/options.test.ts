@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeDb, FakeJar } from "./stubs/fake-db";
 import { LEATHERS, METALS, STONES, type Product, type Variant } from "@/lib/catalog-types";
@@ -25,6 +27,7 @@ import {
   type OptionPalette,
   type VariantOptions,
 } from "@/lib/options";
+import type { AdminProduct, AdminVariant } from "@/lib/admin-catalog";
 import { LEATHER_LABEL, METAL_LABEL, STONE_LABEL } from "@/components/admin/catalog-labels";
 import { applyFilters, readFilters } from "@/components/shop/shop-grid";
 import { productCopy } from "@/content/copy/product";
@@ -174,6 +177,80 @@ describe("the grid of combinations", () => {
     expect(syncCombos(off, combos({ plating: ["gold", "silver"], stone: ["white", "red"] }, P), make)).toEqual(off);
   });
 
+  it("never moves a stored option onto another colour of the same axis, whatever the order of the clicks", () => {
+    type Row = { id: string | null; options: VariantOptions; orig?: VariantOptions; stock: number };
+    const make = (o: VariantOptions): Row => ({ id: null, options: o, stock: 0 });
+    const stored: Row[] = [
+      { id: "gw", options: { plating: "gold", stone: "white" }, orig: { plating: "gold", stone: "white" }, stock: 5 },
+      { id: "sw", options: { plating: "silver", stone: "white" }, orig: { plating: "silver", stone: "white" }, stock: 4 },
+    ];
+    const step = (rows: Row[], stone: string[]) => syncCombos(rows, combos({ plating: ["gold", "silver"], stone }, P), make);
+    const onGrid = (rows: Row[], stone: string[]) => {
+      const keys = new Set(combos({ plating: ["gold", "silver"], stone }, P).map(optionsKey));
+      return rows.filter((r) => keys.has(optionsKey(r.options))).map((r) => [r.id, optionsKey(r.options), r.stock]);
+    };
+    // the only stone colour taken off: the stone axis is dropped, the stored options stay «طلایی» and «نقره‌ای»
+    const dropped = step(stored, []);
+    expect(onGrid(dropped, [])).toEqual([
+      ["gw", "plating=gold", 5],
+      ["sw", "plating=silver", 4],
+    ]);
+    // …then another colour chosen: new combinations; white's stock does not become blue's
+    const swapped = step(dropped, ["blue"]);
+    expect(onGrid(swapped, ["blue"])).toEqual([
+      [null, "plating=silver|stone=blue", 0],
+      [null, "plating=gold|stone=blue", 0],
+    ]);
+    // the other order (blue first, then white off) ends the same way
+    const other = step(step(stored, ["white", "blue"]), ["blue"]);
+    expect(onGrid(other, ["blue"])).toEqual([
+      [null, "plating=silver|stone=blue", 0],
+      [null, "plating=gold|stone=blue", 0],
+    ]);
+    // white chosen again: the stored options come back with their stock
+    for (const rows of [swapped, other])
+      expect(onGrid(step(rows, ["white"]), ["white"])).toEqual([
+        ["gw", "plating=gold|stone=white", 5],
+        ["sw", "plating=silver|stone=white", 4],
+      ]);
+  });
+
+  it("nor onto a colour of another axis: the only stone colour taken off and a leather chosen is a new combination, whichever is clicked first", () => {
+    type Row = { id: string | null; options: VariantOptions; orig?: VariantOptions; stock: number };
+    const make = (o: VariantOptions): Row => ({ id: null, options: o, stock: 0 });
+    const stored: Row[] = [
+      { id: "gw", options: { plating: "gold", stone: "white" }, orig: { plating: "gold", stone: "white" }, stock: 5 },
+      { id: "sw", options: { plating: "silver", stone: "white" }, orig: { plating: "silver", stone: "white" }, stock: 4 },
+    ];
+    const grid = (stone: string[], leather: string[]) => combos({ plating: ["gold", "silver"], stone, leather }, P);
+    const step = (rows: Row[], stone: string[], leather: string[]) => syncCombos(rows, grid(stone, leather), make);
+    const onGrid = (rows: Row[], stone: string[], leather: string[]) => {
+      const keys = new Set(grid(stone, leather).map(optionsKey));
+      return rows.filter((r) => keys.has(optionsKey(r.options))).map((r) => [r.id, optionsKey(r.options), r.stock]);
+    };
+    const black = [
+      [null, "plating=silver|leather=black", 0],
+      [null, "plating=gold|leather=black", 0],
+    ];
+    // stone off, then leather on
+    const offFirst = step(step(stored, [], []), [], ["black"]);
+    expect(onGrid(offFirst, [], ["black"])).toEqual(black);
+    // leather on (a whole axis added: the stored options keep their stock), then stone off
+    const onFirst = step(stored, ["white"], ["black"]);
+    expect(onGrid(onFirst, ["white"], ["black"])).toEqual([
+      ["gw", "plating=gold|stone=white|leather=black", 5],
+      ["sw", "plating=silver|stone=white|leather=black", 4],
+    ]);
+    const then = step(onFirst, [], ["black"]);
+    expect(onGrid(then, [], ["black"])).toEqual(black);
+    // white chosen again and black taken off: the stored options come back with their stock
+    for (const rows of [offFirst, then])
+      expect(onGrid(step(rows, ["white"], []), ["white"], [])).toEqual([
+        ["gw", "plating=gold|stone=white", 5],
+        ["sw", "plating=silver|stone=white", 4],
+      ]);
+  });
+
   it("names the axes a product's combinations use, in the lists' order (no price, no stock)", () => {
     const axes = axesOf([v("a", { stone: "red", plating: "gold" }), v("b", { plating: "silver", stone: "white" })], P);
     expect(axes.map((a) => [a.axis, a.values.map((x) => x.key)])).toEqual([
@@ -182,6 +259,107 @@ describe("the grid of combinations", () => {
     ]);
     expect(axes[0].values[1]).toEqual({ key: "gold", name_fa: "طلایی", name_en: "Gold-tone", swatch: "gold", facet: "gold" });
     expect(JSON.stringify(axes)).not.toMatch(/price|stock/);
+  });
+});
+
+describe("the product editor's colours", async () => {
+  const { chooseColours, initial, removedWithStock, toColours, variantsOut } = await import("@/components/admin/product-editor");
+  type Editor = ReturnType<typeof initial>;
+  const option = (id: string, options: VariantOptions, stock: number, sku: string): AdminVariant => ({ id, name_fa: optionLabel(options, P, "fa"), name_en: optionLabel(options, P, "en"), swatch: optionSwatch(options, P), sku, price: null, stock, image_id: null, sort: 0, options });
+  const product = (variants: AdminVariant[]) => ({ id: "p1", slug: "x", sku: "X", name_fa: "انگشتر", name_en: "Ring", subtitle_fa: "", subtitle_en: "", description_fa: "", description_en: "", category_id: null, collection_id: null, metal: "", stone: "", specs: [], images: [], price: 1, stock: 0, packs: [1], status: "draft", featured: false, badge: "", sort: 0, created_at: "2026-11-28T00:00:00Z", variants }) as AdminProduct;
+  // a ring in gold and silver, white stones only
+  const ring = product([option("gw", { plating: "gold", stone: "white" }, 5, "X-GT-WH"), option("sw", { plating: "silver", stone: "white" }, 4, "X-RH-WH")]);
+  const saved = (f: Editor) => variantsOut(f, P).map((x) => [x.id, optionsKey(x.options), x.stock, x.sku]);
+  const stones = (f: Editor, ...steps: string[][]) => steps.reduce((x, keys) => chooseColours(x, "stone", keys, P), f);
+  const bothWhite = [
+    { name: "طلایی · نگین سفید", stock: 5 },
+    { name: "نقره‌ای (رودیوم) · نگین سفید", stock: 4 },
+  ];
+
+  it("swapping the only stone colour deletes the stored combinations (the warning and the confirm), whichever is clicked first", () => {
+    const f = initial(ring, P);
+    expect(f.axes).toEqual({ plating: ["silver", "gold"], stone: ["white"], leather: [] });
+    expect(removedWithStock(ring, f, P)).toEqual([]);
+    const blue = [
+      [null, "plating=silver|stone=blue", 0, ""],
+      [null, "plating=gold|stone=blue", 0, ""],
+    ];
+    // white unchecked first, then blue checked
+    const offFirst = stones(f, [], ["blue"]);
+    expect(saved(offFirst)).toEqual(blue);
+    expect(removedWithStock(ring, offFirst, P)).toEqual(bothWhite);
+    // blue checked first, then white unchecked
+    const onFirst = stones(f, ["white", "blue"], ["blue"]);
+    expect(saved(onFirst)).toEqual(blue);
+    expect(removedWithStock(ring, onFirst, P)).toEqual(bothWhite);
+    // white chosen again: the stored combinations come back with their stock and SKU, nothing is deleted
+    for (const x of [offFirst, onFirst]) {
+      const back = stones(x, ["white"]);
+      expect(saved(back)).toEqual([
+        ["sw", "plating=silver|stone=white", 4, "X-RH-WH"],
+        ["gw", "plating=gold|stone=white", 5, "X-GT-WH"],
+      ]);
+      expect(removedWithStock(ring, back, P)).toEqual([]);
+    }
+  });
+
+  it("dropping a whole axis keeps the stored options with their ids, stock and SKU", () => {
+    const f = stones(initial(ring, P), []);
+    expect(saved(f)).toEqual([
+      ["sw", "plating=silver", 4, "X-RH-WH"],
+      ["gw", "plating=gold", 5, "X-GT-WH"],
+    ]);
+    expect(removedWithStock(ring, f, P)).toEqual([]);
+  });
+
+  it("swapping the only stone colour for a leather colour deletes the stored combinations too, whichever is clicked first", () => {
+    const f = initial(ring, P);
+    const leather = (x: Editor, keys: string[]) => chooseColours(x, "leather", keys, P);
+    const black = [
+      [null, "plating=silver|leather=black", 0, ""],
+      [null, "plating=gold|leather=black", 0, ""],
+    ];
+    // white unchecked first, then black leather checked
+    const offFirst = leather(stones(f, []), ["black"]);
+    expect(saved(offFirst)).toEqual(black);
+    expect(removedWithStock(ring, offFirst, P)).toEqual(bothWhite);
+    // black leather checked first (a whole axis added: ids, stock and SKU kept), then white unchecked
+    const added = leather(f, ["black"]);
+    expect(saved(added)).toEqual([
+      ["sw", "plating=silver|stone=white|leather=black", 4, "X-RH-WH"],
+      ["gw", "plating=gold|stone=white|leather=black", 5, "X-GT-WH"],
+    ]);
+    expect(removedWithStock(ring, added, P)).toEqual([]);
+    const onFirst = stones(added, []);
+    expect(saved(onFirst)).toEqual(black);
+    expect(removedWithStock(ring, onFirst, P)).toEqual(bothWhite);
+    // white chosen again and the leather taken off: nothing is deleted
+    for (const x of [offFirst, onFirst]) {
+      const back = leather(stones(x, ["white"]), []);
+      expect(saved(back)).toEqual([
+        ["sw", "plating=silver|stone=white", 4, "X-RH-WH"],
+        ["gw", "plating=gold|stone=white", 5, "X-GT-WH"],
+      ]);
+      expect(removedWithStock(ring, back, P)).toEqual([]);
+    }
+  });
+
+  it("after «تبدیل به رنگ‌ها» a swapped colour is a new combination too; the plain list is sent without the editor's fields", () => {
+    const plain = product([
+      { ...option("g", {}, 3, ""), name_fa: "طلایی · سفید", name_en: "" },
+      { ...option("s", {}, 2, ""), name_fa: "نقره‌ای · سفید", name_en: "" },
+    ]);
+    const f = initial(plain, P);
+    expect(variantsOut(f, P).map((x) => Object.keys(x).sort())).toEqual(Array(2).fill(["id", "image_id", "name_en", "name_fa", "options", "price", "sku", "stock", "swatch"]));
+    const mapped = legacyToOptions(f.variants, P)!;
+    const colours = toColours(f, mapped, P);
+    expect(saved(colours).map((x) => x.slice(0, 2))).toEqual([
+      ["s", "plating=silver|stone=white"],
+      ["g", "plating=gold|stone=white"],
+    ]);
+    const swapped = stones(colours, [], ["red"]);
+    expect(saved(swapped).map((x) => x[0])).toEqual([null, null]);
+    expect(removedWithStock(plain, swapped, P).map((x) => x.stock)).toEqual([3, 2]);
   });
 });
 
@@ -222,6 +400,23 @@ describe("choosing on the product page", () => {
     expect(pickFromQuery(new URLSearchParams("plating=silver&stone=white"), vs, axes)).toEqual({ plating: "silver", stone: "white" });
     expect(pickFromQuery(new URLSearchParams("plating=rose"), vs, axes)).toBeNull();
     expect(pickFromQuery(new URLSearchParams(""), vs, axes)).toBeNull();
+  });
+
+  it("an address naming some colours keeps what has a single choice (gold only, night blue or red stones)", () => {
+    const gold = [v("gn", { plating: "gold", stone: "navy" }), v("gr", { plating: "gold", stone: "red" })];
+    const ax = axesOf(gold, P);
+    const p = pickFromQuery(new URLSearchParams("stone=red"), gold, ax)!;
+    expect(p).toEqual({ plating: "gold", stone: "red" });
+    expect(findVariant(gold, ax, p)?.id).toBe("gr");
+    expect(missingAxes(ax, p)).toEqual([]);
+    // a single combination opens fully chosen, and its own colour in the address keeps it so
+    const one = [gold[1]];
+    expect(pickFromQuery(new URLSearchParams("stone=red"), one, axesOf(one, P))).toEqual({ plating: "gold", stone: "red" });
+    // three axes, plating single: the stone from the address, plating kept, leather still open
+    const three = [v("a", { plating: "gold", stone: "navy", leather: "black" }), v("b", { plating: "gold", stone: "red", leather: "black" }), v("c", { plating: "gold", stone: "red", leather: "brown" })];
+    expect(pickFromQuery(new URLSearchParams("stone=red"), three, axesOf(three, P))).toEqual({ plating: "gold", stone: "red" });
+    // nothing the product has in the address: no choice from it
+    expect(pickFromQuery(new URLSearchParams("stone=white"), gold, ax)).toBeNull();
   });
 });
 
@@ -390,6 +585,19 @@ describe("the admin's colour lists", async () => {
       ["طلایی (آبکاری طلا) · نگین سفید", "Gold-plated · White stones"],
       ["نقره‌ای (رودیوم) · نگین سفید", "Silver-tone · White stones"],
     ]);
+  });
+});
+
+describe("the colour lists' form", async () => {
+  const { OptionPaletteForm } = await import("@/components/admin/option-palette");
+  const keys = () => [...renderToStaticMarkup(createElement(OptionPaletteForm, { initial: P, usage: {} })).matchAll(/data-colour="(\d+)"/g)].map((m) => Number(m[1]));
+
+  it("keys its rows the same on every render, so the server's page and the browser's agree (no hydration mismatch)", () => {
+    const first = keys();
+    const n = OPTION_AXES.reduce((t, a) => t + P[a].length, 0);
+    expect(first).toEqual(Array.from({ length: n }, (_, i) => i + 1));
+    // a second visit to the page (the same server process) renders the same keys
+    expect(keys()).toEqual(first);
   });
 });
 

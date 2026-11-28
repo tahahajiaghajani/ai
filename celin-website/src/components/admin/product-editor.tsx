@@ -28,7 +28,7 @@ import { Picture } from "@/components/ui/picture";
 
 type SpecRow = Spec & { k: number };
 
-interface Form {
+export interface Form {
   name_fa: string;
   name_en: string;
   subtitle_fa: string;
@@ -76,8 +76,8 @@ function axesForm(rows: VariantRow[], palette: OptionPalette, key: () => number)
   return { axes, variants };
 }
 
-function initial(p: AdminProduct | null, palette: OptionPalette): Form {
-  const rows: VariantRow[] = (p?.variants ?? []).map(({ sort: _, ...v }, i) => ({ ...v, k: i + 1 }));
+export function initial(p: AdminProduct | null, palette: OptionPalette): Form {
+  const rows: VariantRow[] = (p?.variants ?? []).map(({ sort: _, ...v }, i) => ({ ...v, k: i + 1, orig: v.options }));
   // keys of the grid's rows that are not stored: counted from a fixed start, the same on the server and in the browser
   let k = 50_000;
   const colours = plainList(rows) ? { axes: NO_AXES, variants: rows } : axesForm(rows, palette, () => ++k);
@@ -108,11 +108,28 @@ function initial(p: AdminProduct | null, palette: OptionPalette): Form {
 }
 
 /** The options as saved: a plain list as it is; combinations in the grid's order, only those that are made (the server names them). */
-function variantsOut(f: Form, palette: OptionPalette) {
-  if (plainList(f.variants)) return f.variants.map(({ k: _, off: __, ...v }) => v);
+export function variantsOut(f: Form, palette: OptionPalette) {
+  if (plainList(f.variants)) return f.variants.map(({ k: _, off: __, orig: ___, ...v }) => v);
   return gridOf(f.axes, f.variants, palette)
     .filter((g) => g.row && !g.row.off)
     .map(({ o, row }) => ({ id: row!.id, sku: row!.sku, price: row!.price, stock: row!.stock, image_id: row!.image_id, options: o }));
+}
+
+/** The colours chosen on one axis of «گزینه‌ها»; the grid's rows follow (syncCombos). */
+export function chooseColours(f: Form, axis: OptionAxis, keys: string[], palette: OptionPalette): Form {
+  const axes = { ...f.axes, [axis]: keys };
+  return { ...f, axes, variants: syncCombos(f.variants, combos(axes, palette), (o) => newRow(o)) };
+}
+
+/** «تبدیل به رنگ‌ها»: the plain options become the combinations `mapped` (legacyToOptions), ids, stock, prices, SKUs and pictures kept. */
+export function toColours(f: Form, mapped: VariantOptions[], palette: OptionPalette): Form {
+  return { ...f, ...axesForm(f.variants.map((v, i) => ({ ...v, options: mapped[i], orig: mapped[i] })), palette, nk) };
+}
+
+/** Stored options that saving would delete while they still have stock (a colour taken off or swapped, a combination not made). */
+export function removedWithStock(p: AdminProduct | null, f: Form, palette: OptionPalette): { name: string; stock: number }[] {
+  const kept = new Set(variantsOut(f, palette).map((v) => v.id));
+  return (p?.variants ?? []).filter((v) => v.id && !kept.has(v.id) && v.stock > 0).map((v) => ({ name: v.name_fa, stock: v.stock }));
 }
 
 function payload(f: Form, palette: OptionPalette, id?: string) {
@@ -253,9 +270,7 @@ export function ProductEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f]);
 
-  // stored options that saving would delete while they still have stock (a colour taken off, a combination not made)
-  const kept = new Set(variantsOut(f, palette).map((v) => v.id));
-  const removed = (product?.variants ?? []).filter((v) => v.id && !kept.has(v.id) && v.stock > 0).map((v) => ({ name: v.name_fa, stock: v.stock }));
+  const removed = removedWithStock(product, f, palette);
 
   const onSave = () => {
     if (!validate()) return;
@@ -282,16 +297,12 @@ export function ProductEditor({
   const plain = plainList(f.variants);
   const hasVariants = variantsOut(f, palette).length > 0;
   const setVariants = (fn: (xs: VariantRow[]) => VariantRow[]) => setF((x) => ({ ...x, variants: fn(x.variants) }));
-  const setAxis = (axis: OptionAxis, keys: string[]) =>
-    setF((x) => {
-      const axes = { ...x.axes, [axis]: keys };
-      return { ...x, axes, variants: syncCombos(x.variants, combos(axes, palette), (o) => newRow(o)) };
-    });
+  const setAxis = (axis: OptionAxis, keys: string[]) => setF((x) => chooseColours(x, axis, keys, palette));
   // «تبدیل به رنگ‌ها»: the plain options become combinations of the colour lists, ids, stock, prices, SKUs and pictures kept
   const mapped = plain ? legacyToOptions(f.variants, palette) : null;
   const convert = () => {
     if (!mapped) return;
-    setF((x) => ({ ...x, ...axesForm(x.variants.map((v, i) => ({ ...v, options: mapped[i] })), palette, nk) }));
+    setF((x) => toColours(x, mapped, palette));
     toast(true, "گزینه‌ها به ترکیب رنگ‌ها تبدیل شدند؛ بررسی کنید و ذخیره بزنید.");
   };
   const imageList = f.images.map((id) => media[id]).filter((m): m is Media => Boolean(m));
