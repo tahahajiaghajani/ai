@@ -247,12 +247,16 @@ export function startPick<T extends { options: VariantOptions }>(variants: T[], 
   return out;
 }
 
-/** A choice from the address (?v=<variant id>, or ?plating=gold&stone=white), when it names what the product has. */
+/**
+ * A choice from the address (?v=<variant id>, or ?plating=gold&stone=white), when it names what the product has. The
+ * colours it names are added to what is chosen before the customer does anything (startPick), so ?stone=red on a
+ * gold-only piece keeps «طلایی» chosen.
+ */
 export function pickFromQuery<T extends { id: string; options: VariantOptions }>(q: URLSearchParams, variants: T[], axes: ProductAxis[]): VariantOptions | null {
   const v = q.get("v");
   const byId = v ? variants.find((x) => x.id === v) : undefined;
   if (byId) return { ...byId.options };
-  let out: VariantOptions = {};
+  let out: VariantOptions = startPick(variants, axes);
   let any = false;
   for (const x of axes) {
     const key = q.get(x.axis);

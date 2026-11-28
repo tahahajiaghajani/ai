@@ -332,6 +332,22 @@ describe("choosing on the product page", () => {
     expect(pickFromQuery(new URLSearchParams(""), vs, axes)).toBeNull();
   });
 
+  it("an address naming some colours keeps what has a single choice (gold only, night blue or red stones)", () => {
+    const gold = [v("gn", { plating: "gold", stone: "navy" }), v("gr", { plating: "gold", stone: "red" })];
+    const ax = axesOf(gold, P);
+    const p = pickFromQuery(new URLSearchParams("stone=red"), gold, ax)!;
+    expect(p).toEqual({ plating: "gold", stone: "red" });
+    expect(findVariant(gold, ax, p)?.id).toBe("gr");
+    expect(missingAxes(ax, p)).toEqual([]);
+    // a single combination opens fully chosen, and its own colour in the address keeps it so
+    const one = [gold[1]];
+    expect(pickFromQuery(new URLSearchParams("stone=red"), one, axesOf(one, P))).toEqual({ plating: "gold", stone: "red" });
+    // three axes, plating single: the stone from the address, plating kept, leather still open
+    const three = [v("a", { plating: "gold", stone: "navy", leather: "black" }), v("b", { plating: "gold", stone: "red", leather: "black" }), v("c", { plating: "gold", stone: "red", leather: "brown" })];
+    expect(pickFromQuery(new URLSearchParams("stone=red"), three, axesOf(three, P))).toEqual({ plating: "gold", stone: "red" });
+    // nothing the product has in the address: no choice from it
+    expect(pickFromQuery(new URLSearchParams("stone=white"), gold, ax)).toBeNull();
+  });
 });
 
 describe("the older plain lists", () => {
