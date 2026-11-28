@@ -26,7 +26,7 @@ import {
   removeStep, restoreComputed, restoreCounters, revertTouched, saveComputed, tablesInfo, unattributedReport,
   type DeletedBucket, type ExpandCursor, type PurgeReport, type RefReport, type RemoveCursor, type ReroutedBucket, type Skipped, type TableInfo,
 } from "./purge";
-import { anchorStep, clearStep, newTableCursor, noNames, planNames, rerouteStep, retireStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
+import { anchorStep, clearStep, newTableCursor, noNames, planNames, rerouteStep, reviewStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
 import { systemCtx } from "../../engine";
 import { TRAIL_TABLE_NAMES } from "./refs";
 import { sampleWords } from "./samples";
@@ -255,7 +255,7 @@ export async function purgePreview(ctx: Ctx): Promise<PurgePreview> {
         const names = await planNames(tx, orgId);
         const st: StepState = { until, since, dry: true, cleaned: [], rerouted: new Map(), skipped: [] };
         const cleared = complete && (await clearStep(tx, sys, orgId, info, names, newTableCursor(), st));
-        if (cleared) await retireStuck(tx, sys, orgId, names, st);
+        if (cleared) await reviewStuck(tx, sys, orgId, names, st);
         const rerouted = cleared && (await rerouteStep(tx, sys, orgId, info, names, newTableCursor(), st));
         const anchored = rerouted && (await anchorStep(tx, sys, orgId, info, names, newTableCursor(), st));
         report.cleaned = st.cleaned;
@@ -561,7 +561,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         const cur = (pack.progress.cursor as TableCursor | null) ?? newTableCursor();
         const st = state();
         const done = await clearStep(tx, sys!, orgId, info, names, cur, st);
-        if (done) await retireStuck(tx, sys!, orgId, names, st);
+        if (done) await reviewStuck(tx, sys!, orgId, names, st);
         report.cleaned = st.cleaned;
         report.skipped = st.skipped;
         mergeRerouted(report, st.rerouted);

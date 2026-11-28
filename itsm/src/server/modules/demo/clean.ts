@@ -5,10 +5,10 @@
 //                     meaningless ends — switched off by its «فعال» flag or its own switch, retired or closed by its
 //                     lifecycle (a published catalogue item is retired), else removed (refs.ts `deadEnd`) —, an
 //                     allow-list, scope or «همه» audience criterion that would empty ends its row (never «everyone»,
-//                     refs.ts `judgeRestrictions`); a published workflow whose current version can no longer route
-//                     is retired when none of its managers is left — otherwise its steps wait for the managers and it
-//                     is listed for review (versions are never rewritten). Each definition gets an audit line saying
-//                     what went and how it ended (./review.ts).
+//                     refs.ts `judgeRestrictions`); a published workflow whose current version can no longer route stays
+//                     published: its step waits for the managers, or for the organisation's administrators when none
+//                     is left, and it is listed for review (versions are never rewritten). Each definition gets an
+//                     audit line saying what went and how it ended (./review.ts).
 //   reroute (class D) kept real records lose their references to removed rows through the engine, as the system: the
 //                     engine's hooks route them again (assignment rules, default queues); open approvals asked of
 //                     removed people are planned again; open workflow tasks of removed people end and their rounds
@@ -358,14 +358,16 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
 
 /**
  * Published workflows whose current version can no longer route: a step (not the start) whose rules and fallbacks all
- * name removed rows or positions the purge leaves without a holder. The version itself is never rewritten.
- *   · a step that waits while a live manager can act on it keeps the workflow published, listed for review: the 1.1.5
- *     waiting machinery covers it — a new case's journal says why, its managers are told and can give the step to
- *     someone or find its people again, and a holder added later gets it (../process/reresolve);
- *   · a step nobody could ever act on — it waits, or goes to the managers, and none of its managers is left — retires
- *     the workflow (no new case stalls; open cases finish on their version).
+ * name removed rows or positions the purge leaves without a holder. The version itself is never rewritten, and the
+ * workflow stays published: after the purge someone can always act on such a step. Its new cases wait there — a step
+ * that «منتظر بماند», or one that «به مسئولان گردش‌کار برسد» with no manager left to take it — and the 1.1.5 waiting
+ * machinery covers them: the journal says why, the managers are told and can give the step to someone or find its
+ * people again, and a holder added later gets it (../process/reresolve). When none of the managers it names is left
+ * (they were all the pack's people), its cases name none — new cases leave removed managers out
+ * (../process/engine/apply.ts `liveManagers`), kept cases lose them in the reroute — and the organisation's
+ * administrators manage them and are told, as for a workflow that names no managers. Each is listed for review.
  */
-export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, st: StepState): Promise<void> {
+export async function reviewStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, st: StepState): Promise<void> {
   const rows = await tx.query<{ id: string; name: string; key: string; graph: unknown; managers: unknown; manager_groups: unknown }>(
     `select p.id::text as id, p.name, p.key, v.graph, v.managers, v.manager_groups from sm_processes p join sm_process_versions v on v.id = p.current_version_id and v.org_id = p.org_id
       where p.org_id = $1 and p.deleted_at is null and p.status = 'published' and not ${isDemo("p.id")} and not ${isDemo("v.id")}`,
@@ -373,9 +375,9 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
   );
   for (const p of rows) {
     const gone = await goneOracle(tx, orgId, [p.graph, p.managers, p.manager_groups], names, { emptiedAsGone: true });
-    const managersLive = [...(Array.isArray(p.managers) ? p.managers : []), ...(Array.isArray(p.manager_groups) ? p.manager_groups : [])];
-    const managersOk = !managersLive.length || managersLive.some((x) => typeof x === "string" && !gone.id(x));
-    const stuck: string[] = [];
+    const named = [...(Array.isArray(p.managers) ? p.managers : []), ...(Array.isArray(p.manager_groups) ? p.manager_groups : [])].filter((x): x is string => typeof x === "string");
+    // a manager (or a managers' group) of the workflow's own is left: the managers act; else the administrators do
+    const managersLeft = named.some((x) => !gone.id(x));
     const waits: string[] = [];
     const nodes = Array.isArray((p.graph as { nodes?: unknown[] })?.nodes) ? ((p.graph as { nodes: { id: string; type: string; label?: string; config?: unknown }[] }).nodes) : [];
     for (const n of nodes) {
@@ -388,34 +390,21 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
       const fallbackDead = !step.fallback?.length || dead(step.fallback);
       const nobody = ifNobodyOf(step);
       if (noRules || !rulesDead || !fallbackDead) continue;
-      if ((nobody === "wait" || nobody === "managers") && !managersOk) stuck.push(String(n.label || n.id));
-      else if (nobody === "wait") waits.push(String(n.label || n.id));
+      // the step waits now: «منتظر بماند», or «به مسئولان گردش‌کار برسد» with no manager to take it
+      if (nobody === "wait" || (nobody === "managers" && !managersLeft)) waits.push(String(n.label || n.id));
     }
-    if (!stuck.length && !waits.length) continue;
-    const retire = stuck.length > 0;
-    const steps = (xs: string[]) => `مرحله‌های «${xs.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)`;
+    if (!waits.length) continue;
+    const who = managersLeft
+      ? "مسئولان گردش‌کار باخبر می‌شوند"
+      : named.length
+        ? "چون هیچ‌یک از مسئولانش نمانده است، مدیران سازمان آن‌ها را اداره می‌کنند و باخبر می‌شوند"
+        : "مدیران سازمان، که پرونده‌های گردش‌کار بی‌مسئول را اداره می‌کنند، باخبر می‌شوند";
     const entry: CleanedDefinition = {
-      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false, ...(retire ? { retired: true } : {}),
-      what: (retire
-        ? `${steps(stuck)} و هیچ‌یک از مسئولانش هم نمانده است`
-        : `${steps(waits)}؛ گردش‌کار منتشر می‌ماند: پرونده‌های تازه آن‌جا منتظر می‌مانند و مسئولان گردش‌کار باخبر می‌شوند تا کسی را برگزینند یا دارنده‌ای بیفزایند`
-      ).slice(0, 400),
+      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false,
+      what: `مرحله‌های «${waits.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)؛ گردش‌کار منتشر می‌ماند: پرونده‌های تازه آن‌جا منتظر می‌مانند و ${who} تا کسی را برگزینند یا دارنده‌ای بیفزایند`.slice(0, 400),
     };
     st.cleaned.push(entry);
-    if (st.dry) continue;
-    if (!retire) {
-      await reviewLine(tx, orgId, entry);
-      continue;
-    }
-    const r = await inSavepoint(tx, () => updateIn(tx, sys, "process", p.id, { status: "retired" }, { trusted: true, keepVersion: true }));
-    if (!r.ok) {
-      const direct = await inSavepoint(tx, () => tx.query(`update sm_processes set status = 'retired', updated_at = now() where id = $1 and org_id = $2`, [p.id, orgId]));
-      if (!direct.ok) {
-        st.skipped.push({ phase: "clear", table: "sm_processes", rows: 1, reason: failReason(direct.error) });
-        continue;
-      }
-    }
-    await reviewLine(tx, orgId, entry);
+    if (!st.dry) await reviewLine(tx, orgId, entry);
   }
 }
 
