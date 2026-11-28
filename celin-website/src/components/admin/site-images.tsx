@@ -16,6 +16,7 @@ import { ImageDropzone } from "@/components/admin/image-dropzone";
 import { MediaEditDialog } from "@/components/admin/media-edit";
 import { MediaPicker } from "@/components/admin/media-picker";
 import { galleryKey, SlotGallery } from "@/components/admin/slot-gallery";
+import { galleryIds, slotPicture } from "@/components/admin/slot-payload";
 import { SlotVideoField } from "@/components/admin/video-upload";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
@@ -45,13 +46,12 @@ interface Draft {
   video: Video | null;
   /** gallery slots only: the ordered pictures (built-in ones without an id until they are copied into the library) */
   gallery: Media[] | null;
+  /** gallery slots only: the list as the server takes it (galleryIds) when the sheet opened; it is sent only when it changed */
+  opened: string[] | null;
   texts: Record<string, { fa: string; en: string }>;
   fx: number;
   fy: number;
 }
-
-/** a gallery as the server takes it: library ids, `seed:<key>` for a built-in picture never copied into the library */
-const galleryIds = (items: Media[]) => items.map((m) => m.id ?? `seed:${m.src.replace(/^\/media\/seed\//, "")}`);
 
 export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots: SlotMap; defaults: Record<string, Media> }) {
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -76,12 +76,14 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
     const r = slots[d.key];
     const chosen = r?.media?.id ? r.media : null;
     const shown = chosen ?? defaults[d.key];
+    const gallery = d.gallery ? [...(r?.gallery ?? [shown])] : null;
     setDraft({
       key: d.key,
       media: chosen,
       mobile: r?.mobile ?? null,
       video: r?.video ?? null,
-      gallery: d.gallery ? [...(r?.gallery ?? [shown])] : null,
+      gallery,
+      opened: gallery && galleryIds(gallery),
       texts: Object.fromEntries(d.texts.map((t) => [t.key, { fa: r?.texts[t.key]?.fa ?? t.fa, en: r?.texts[t.key]?.en ?? t.en }])),
       fx: shown.fx,
       fy: shown.fy,
@@ -273,7 +275,7 @@ function SlotForm({
         }
         return adminSaveSlot({
           key: def.key,
-          ...(gallery ? { gallery: galleryIds(gallery.items) } : { media_id: draft.media?.id ?? null }),
+          ...slotPicture(draft.media, gallery && draft.opened ? { items: gallery.items, opened: draft.opened } : null),
           media_mobile_id: draft.mobile?.id ?? null,
           ...(def.video ? { video_id: draft.video?.id ?? null } : {}),
           texts: draft.texts,
