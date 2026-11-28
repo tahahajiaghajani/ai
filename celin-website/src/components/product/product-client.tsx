@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, ViewTransition, type CSSProperties, type ReactNode } from "react";
 import { commonCopy } from "@/content/copy/common";
 import { productCopy } from "@/content/copy/product";
-import type { Product } from "@/lib/catalog-types";
+import { OPTION_AXES, type OptionAxis, type Product, type ProductAxis, type Variant, type VariantOptions } from "@/lib/catalog-types";
 import { basketPieces, linePieces } from "@/lib/basket";
 import { formatPct, num, type Lang } from "@/lib/format";
 import { stepReached } from "@/lib/pricing";
 import { href, t } from "@/lib/i18n";
 import { altOf, mediaUrl, srcSet, type Media } from "@/lib/media";
+import { findVariant, fitsPick, missingAxes, pickFromQuery, pickValue, startPick, valueState } from "@/lib/options";
 import { maxPacks, packCap, singleOnly } from "@/lib/packs";
 import { Picture } from "@/components/ui/picture";
 import { Overlay } from "@/components/ui/overlay";
@@ -22,7 +23,7 @@ import { StepNote } from "@/components/pro/step-note";
 import { CodeInput } from "@/components/pro/code-input";
 import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/pro-bar";
-import { useMe, usePriceBook } from "@/components/pro/session";
+import { useMe, usePriceBook, type PriceBook } from "@/components/pro/session";
 import { cart, useCart } from "@/components/cart/cart-store";
 import { Swatch } from "@/components/shop/swatch";
 import { pieceName } from "@/components/shop/piece-name";
@@ -223,6 +224,7 @@ function Actions({
   product,
   variantId,
   needsVariant,
+  choose,
   pack,
   qty,
   setQty,
@@ -232,6 +234,8 @@ function Actions({
   product: Product;
   variantId: string | null;
   needsVariant: boolean;
+  /** what is still to choose («رنگ نگین را انتخاب کنید»); the plain list's own words otherwise */
+  choose?: string;
   /** how it is being bought: 1 = single, 2–5 = packs of that many sizes */
   pack: number;
   /** the quantity being chosen — pieces, or packs of `pack` (the price above follows it) */
@@ -264,7 +268,7 @@ function Actions({
     const max = maxPacks(pack, room);
     const stockPacks = maxPacks(pack, stock);
     const seed = product.id.startsWith("seed-");
-    if (needsVariant) return <p className="font-ui text-sm text-muted">{c.cart.chooseOption}</p>;
+    if (needsVariant) return <p className="font-ui text-sm text-muted">{choose || c.cart.chooseOption}</p>;
     if (stock <= 0) return <p className="text-sm leading-7 text-ink-2">{tr.outOfStock}</p>;
     // every piece of the order counts towards the quantity discount, whichever design or pack (src/lib/basket.ts)
     const inBasket = basketPieces(lines);
@@ -347,6 +351,55 @@ function Actions({
   );
 }
 
+/**
+ * Colour options: one row of swatches per axis (plating → stone → leather), the chosen colour beside its name.
+ * A colour that no combination makes with the others chosen is dimmed (still clickable: choosing it drops what does
+ * not go with it); for members and Pro accounts a colour whose combinations cannot be ordered now is dimmed with
+ * «ناموجود» — their price book says only orderable or not, never a count. Visitors never get stock.
+ */
+function AxisChoice({ lang, productId, axes, variants, pick, choose, book }: { lang: Lang; productId: string; axes: ProductAxis[]; variants: Variant[]; pick: VariantOptions; choose: (axis: OptionAxis, key: string) => void; book: PriceBook | null | undefined }) {
+  const tr = productCopy[lang];
+  const prices = book?.prices[productId];
+  const orderable = prices ? (v: Variant) => (prices.variants[v.id]?.stock ?? 0) > 0 : undefined;
+  return (
+    <div className="mt-5 space-y-5 border-t border-gold/20 pt-5">
+      {axes.map((x) => {
+        const current = x.values.find((v) => v.key === pick[x.axis]);
+        return (
+          <fieldset key={x.axis}>
+            <legend className="sr-only">{tr.axes[x.axis]}</legend>
+            <p className="mb-3 font-ui text-sm text-ink-2" aria-hidden>
+              {tr.axes[x.axis]}
+              {current && <span className="ms-2 text-ink">{t(current, "name", lang)}</span>}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {x.values.map((v) => {
+                const on = pick[x.axis] === v.key;
+                const state = valueState(variants, pick, x.axis, v.key, orderable);
+                const note = state === "none" ? tr.notMade : state === "out" ? tr.unavailable : "";
+                return (
+                  <button
+                    key={v.key}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => choose(x.axis, v.key)}
+                    title={note ? `${t(v, "name", lang)} — ${note}` : t(v, "name", lang)}
+                    className={`flex h-11 items-center gap-2 border px-3 text-sm transition-[color,border-color,opacity] duration-300 ${on ? "border-ink bg-white text-ink shadow-[inset_0_0_0_1px_var(--color-ink)]" : "border-line-strong bg-white/50 text-ink-2 hover:border-gold"} ${note && !on ? "opacity-45 hover:opacity-80" : ""}`}
+                  >
+                    <Swatch swatch={v.swatch} className="size-4" />
+                    {t(v, "name", lang)}
+                    {state === "out" ? <span className="font-ui text-[11px] text-muted">{tr.unavailable}</span> : note && <span className="sr-only">{` — ${note}`}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ProductClient({
   lang,
   product,
@@ -363,9 +416,55 @@ export function ProductClient({
   const tr = productCopy[lang];
   const c = commonCopy(lang);
   const me = useMe();
+  const book = usePriceBook();
   const variants = product.variants;
-  const [variantId, setVariantId] = useState<string | null>(variants.length === 1 ? variants[0].id : null);
-  const variant = variants.find((v) => v.id === variantId) ?? null;
+  // chosen by colour (one row per axis, src/lib/options.ts), or from the plain list
+  const axes = product.axes ?? [];
+  const byAxes = axes.length > 0;
+  const [pick, setPick] = useState<VariantOptions>(() => startPick(variants, axes));
+  const [plainId, setPlainId] = useState<string | null>(variants.length === 1 ? variants[0].id : null);
+  // the gallery follows the customer's choice (not what is chosen for them before they do anything)
+  const [chosen, setChosen] = useState(false);
+  const variant = byAxes ? findVariant(variants, axes, pick) : (variants.find((v) => v.id === plainId) ?? null);
+  const variantId = variant?.id ?? null;
+  // while colours are being chosen, the price says «از» the lowest of the combinations still open
+  const among = byAxes && !variant ? variants.filter((v) => fitsPick(v.options, pick)).map((v) => v.id) : undefined;
+
+  // a choice in the address (?v=… from the basket, or ?plating=gold&stone=white) is read once; the page itself is static
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (byAxes) {
+      const p = pickFromQuery(q, variants, axes);
+      if (p) {
+        setPick(p);
+        setChosen(true);
+      }
+    } else {
+      const v = q.get("v");
+      if (v && variants.some((x) => x.id === v)) {
+        setPlainId(v);
+        setChosen(true);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const remember = (id: string | null) => {
+    const u = new URL(window.location.href);
+    for (const k of ["v", ...OPTION_AXES]) u.searchParams.delete(k);
+    if (id) u.searchParams.set("v", id);
+    window.history.replaceState(null, "", `${u.pathname}${u.search}${u.hash}`);
+  };
+  const choose = (axis: OptionAxis, key: string) => {
+    const next = pickValue(variants, axes, pick, axis, key);
+    setPick(next);
+    setChosen(true);
+    remember(findVariant(variants, axes, next)?.id ?? null);
+  };
+  const choosePlain = (id: string) => {
+    setPlainId(id);
+    setChosen(true);
+    remember(id);
+  };
   // how it is bought (src/lib/packs.ts): the admin's choices, the first chosen to begin with
   const packs = product.packs?.length ? product.packs : [1];
   const [pack, setPack] = useState(packs[0]);
@@ -373,19 +472,21 @@ export function ProductClient({
   const [qty, setQty] = useState(1);
   useEffect(() => setQty(1), [variantId, pack]);
 
-  // the gallery: product pictures, with the chosen option's picture shown when it has one
+  // the gallery: product pictures, with the chosen option's picture shown when it has one (while colours are still
+  // being chosen, the first combination of those chosen so far that has a picture)
   const images = useMemo(() => {
     const list = [...product.images];
     for (const v of variants) if (v.image && !list.some((m) => same(m, v.image!))) list.push(v.image);
     return list;
   }, [product.images, variants]);
   const [index, setIndex] = useState(0);
+  const shown = variant?.image ?? (byAxes && chosen ? (variants.find((v) => v.image && fitsPick(v.options, pick))?.image ?? null) : null);
   useEffect(() => {
-    if (variant?.image) {
-      const i = images.findIndex((m) => same(m, variant.image!));
+    if (shown && (chosen || variants.length === 1)) {
+      const i = images.findIndex((m) => same(m, shown));
       if (i >= 0) setIndex(i);
     }
-  }, [variant, images]);
+  }, [shown, images, chosen, variants.length]);
 
   // the sticky phone bar appears once the main action has scrolled away
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -427,13 +528,15 @@ export function ProductClient({
           <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(70%_60%_at_100%_0%,var(--color-gold-mist),transparent_70%),radial-gradient(60%_60%_at_0%_100%,var(--color-champagne-2),transparent_70%)]" />
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <PriceSlot productId={product.id} variantId={variantId} lang={lang} size="pdp" qty={qty * pack} pack={pack} className="font-ui text-xl!" />
+              <PriceSlot productId={product.id} variantId={variantId} among={among} lang={lang} size="pdp" qty={qty * pack} pack={pack} className="font-ui text-xl!" />
               {locked && <p className="mt-1 font-ui text-xs leading-6 text-muted">{tr.lockedNote}</p>}
             </div>
             {locked && <ProSeal className="mt-0.5" />}
           </div>
 
-          {variants.length > 0 && (
+          {byAxes ? (
+            <AxisChoice lang={lang} productId={product.id} axes={axes} variants={variants} pick={pick} choose={choose} book={book} />
+          ) : variants.length > 0 && (
             <fieldset className="mt-5 border-t border-gold/20 pt-5">
               <legend className="sr-only">{tr.option}</legend>
               <p className="mb-3 font-ui text-sm text-ink-2" aria-hidden>
@@ -446,7 +549,7 @@ export function ProductClient({
                     key={v.id}
                     type="button"
                     aria-pressed={v.id === variantId}
-                    onClick={() => setVariantId(v.id)}
+                    onClick={() => choosePlain(v.id)}
                     title={t(v, "name", lang)}
                     className={`flex h-11 items-center gap-2 border px-3 text-sm transition-colors duration-300 ${v.id === variantId ? "border-ink bg-white text-ink shadow-[inset_0_0_0_1px_var(--color-ink)]" : "border-line-strong bg-white/50 text-ink-2 hover:border-gold"}`}
                   >
@@ -461,7 +564,17 @@ export function ProductClient({
           {!singleOnly(packs) && <PackChoice lang={lang} packs={packs} pack={pack} setPack={setPack} />}
 
           <div ref={actionsRef} className="mt-5">
-            <Actions lang={lang} product={product} variantId={variantId} needsVariant={variants.length > 0 && !variantId} pack={pack} qty={qty} setQty={setQty} onAdded={() => setQty(1)} />
+            <Actions
+              lang={lang}
+              product={product}
+              variantId={variantId}
+              needsVariant={variants.length > 0 && !variantId}
+              choose={byAxes && !variant ? tr.choose(missingAxes(axes, pick).map((a) => tr.axes[a])) : undefined}
+              pack={pack}
+              qty={qty}
+              setQty={setQty}
+              onAdded={() => setQty(1)}
+            />
           </div>
         </div>
 
@@ -503,7 +616,7 @@ export function ProductClient({
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">{name}</p>
-            <PriceSlot productId={product.id} variantId={variantId} lang={lang} showStock={false} qty={qty * pack} className="font-ui" />
+            <PriceSlot productId={product.id} variantId={variantId} among={among} lang={lang} showStock={false} qty={qty * pack} className="font-ui" />
           </div>
           <button type="button" tabIndex={sticky ? 0 : -1} onClick={() => actionsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} className="btn btn-metal min-h-11 px-5">
             {me?.pro.active ? tr.add : c.proBar.guestCta}

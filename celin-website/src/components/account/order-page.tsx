@@ -165,12 +165,12 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
                       <div className="flex items-start gap-4">
                         <Picture media={itemMedia(i.image)} lang={lang} ratio="4/5" sizes="80px" alt={name} className="w-16 shrink-0 sm:w-20" />
                         <div className="hidden min-w-0 sm:block">
-                          <ItemText name={name} option={option} packs={packText} sku={i.sku} slug={i.slug} lang={lang} />
+                          <ItemText name={name} option={option} packs={packText} sku={i.sku} slug={i.slug} variantId={i.variant_id} lang={lang} />
                         </div>
                       </div>
                     </td>
                     <td className="col-span-2 sm:hidden">
-                      <ItemText name={name} option={option} packs={packText} sku={i.sku} slug={i.slug} lang={lang} />
+                      <ItemText name={name} option={option} packs={packText} sku={i.sku} slug={i.slug} variantId={i.variant_id} lang={lang} />
                     </td>
                     <td className="self-end text-xs text-muted tabular-nums sm:table-cell sm:py-5 sm:align-top sm:text-sm sm:text-ink-2">
                       <span className="sm:hidden">
@@ -258,11 +258,11 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "suc
   );
 }
 
-function ItemText({ name, option, packs, sku, slug, lang }: { name: string; option: string; packs: string; sku: string; slug: string; lang: Lang }) {
+function ItemText({ name, option, packs, sku, slug, variantId, lang }: { name: string; option: string; packs: string; sku: string; slug: string; variantId: string | null; lang: Lang }) {
   return (
     <>
       {slug ? (
-        <Link href={href(lang, `/product/${slug}`)} className="relative text-sm leading-6 text-ink after:absolute after:inset-x-0 after:-inset-y-3.5 hover:text-gold-text">
+        <Link href={href(lang, `/product/${slug}${variantId ? `?v=${variantId}` : ""}`)} className="relative text-sm leading-6 text-ink after:absolute after:inset-x-0 after:-inset-y-3.5 hover:text-gold-text">
           {name}
         </Link>
       ) : (

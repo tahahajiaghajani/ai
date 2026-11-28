@@ -46,10 +46,13 @@ export function PriceSlot({
   showStock = true,
   qty = 1,
   pack = 1,
+  among,
   className = "",
 }: {
   productId: string;
   variantId?: string | null;
+  /** no option chosen yet, but only these can still be (colours chosen on some axes): «از» their lowest price */
+  among?: string[];
   lang: Lang;
   size?: "card" | "pdp";
   showStock?: boolean;
@@ -81,7 +84,9 @@ export function PriceSlot({
     return <div className={`${box} text-muted ${className}`}>{c.price.locked}</div>;
   }
   const v = variantId ? price.variants[variantId] : undefined;
-  const base = v ? v.price ?? price.price : Object.keys(price.variants).length ? fromPrice(price) : price.price;
+  // the options still open: those the colours chosen so far leave, else all of them
+  const pool = !v && among?.length ? among.map((id) => price.variants[id]).filter(Boolean) : Object.values(price.variants);
+  const base = v ? v.price ?? price.price : pool.length ? fromPrice({ ...price, variants: Object.fromEntries(pool.map((x, i) => [i, x])) }) : price.price;
   const value = base === null ? null : listPrice(base, book.pricing);
   // the quantity step the whole order would reach with these pieces (members only; Pro has no steps), then the sale
   const pieces = inBasket + Math.max(1, Math.floor(qty) || 1);
@@ -90,7 +95,7 @@ export function PriceSlot({
   const stepped = base === null ? null : unitAt(base, pct, sale);
   const discounted = value !== null && stepped !== null && stepped < value;
   const stepOff = offPct(book.pricing.listPct, pct);
-  const varies = !v && Object.keys(price.variants).length > 0 && new Set(Object.values(price.variants).map((x) => x.price ?? price.price)).size > 1;
+  const varies = !v && pool.length > 0 && new Set(pool.map((x) => x.price ?? price.price)).size > 1;
   const stock = v ? v.stock : stockOf(price);
   const band = stockBand({ stock }, book, lang);
   // the product page of a piece bought in packs: one piece's price, then the pack's

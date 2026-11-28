@@ -1,6 +1,7 @@
 import "server-only";
 import { getCatalog } from "@/lib/catalog";
 import { common } from "@/content/copy/common";
+import { valueWord } from "@/lib/options";
 import type { SearchItem } from "@/lib/search";
 
 const PAGES: SearchItem[] = [
@@ -37,7 +38,10 @@ export async function buildSearchIndex(): Promise<SearchItem[]> {
         p.subtitle_en,
         p.metal ? `${fa.tones[p.metal]} ${en.tones[p.metal]}` : "",
         p.stone ? `${fa.stones[p.stone]} ${en.stones[p.stone]}` : "",
-        ...p.variants.map((v) => `${v.name_fa} ${v.name_en} ${v.sku}`),
+        // colour options: each colour once (with its axis word), not every combination's name; a plain list: its names
+        ...(p.axes?.length
+          ? [...p.axes.flatMap((x) => x.values.map((v) => `${valueWord(x.axis, { fa: v.name_fa, en: v.name_en }, v.key, "fa")} ${valueWord(x.axis, { fa: v.name_fa, en: v.name_en }, v.key, "en")}`)), ...p.variants.map((v) => v.sku)]
+          : p.variants.map((v) => `${v.name_fa} ${v.name_en} ${v.sku}`)),
       ].join(" "),
     };
   });

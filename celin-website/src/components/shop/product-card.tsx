@@ -14,7 +14,8 @@ import { pieceName } from "@/components/shop/piece-name";
 /**
  * The product card: a tonal 4:5 tile (the on-model picture fades in on hover, desktop only), the collection
  * as a small label, the name, the price slot, how it is sold when that is not one at a time («فقط بسته‌ی ۴ سایزی»;
- * the price stays one piece's) and the colour hint. Priced and locked cards share one anatomy.
+ * the price stays one piece's) and the colour hint — the dots of its first colour row with more than one colour and how
+ * many colours (or, with several such rows, combinations) it comes in. Priced and locked cards share one anatomy.
  * The cover carries the view-transition name that morphs into the product page's hero.
  */
 export function ProductCard({
@@ -39,7 +40,10 @@ export function ProductCard({
   const c = commonCopy(lang);
   const cover = p.images[0];
   const second = p.images[1];
-  const swatches = [...new Set(p.variants.map((v) => v.swatch).filter(Boolean))];
+  // colour options: the first axis with a choice; a plain list: its options' dots
+  const multi = (p.axes ?? []).filter((a) => a.values.length > 1);
+  const swatches = multi.length ? multi[0].values.map((v) => v.swatch).filter(Boolean) : [...new Set(p.variants.map((v) => v.swatch).filter(Boolean))];
+  const choices = multi.length === 1 ? c.choices.colors(num(multi[0].values.length, lang)) : multi.length > 1 ? c.choices.combos(num(p.variants.length, lang)) : c.choices.options(num(p.variants.length, lang));
   const name = t(p, "name", lang);
   const arch = variant === "arch";
   const ratio = arch ? "3/4" : "4/5";
@@ -74,9 +78,7 @@ export function ProductCard({
             {swatches.slice(0, 4).map((s) => (
               <Swatch key={s} swatch={s} />
             ))}
-            <span className="ms-1 font-ui">
-              {lang === "fa" ? `${num(p.variants.length, lang)} گزینه` : `${p.variants.length} options`}
-            </span>
+            <span className="ms-1 font-ui">{choices}</span>
           </span>
         )}
       </Link>

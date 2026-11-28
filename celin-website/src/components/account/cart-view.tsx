@@ -384,7 +384,8 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
   const max = Math.max(1, Math.min(packCap(pack), fits));
   // stock is shown to Pro accounts only
   const band = r.problem === "gone" || !book.showStock ? null : stockBand({ stock: r.stock }, book, lang);
-  const productHref = product ? href(lang, `/product/${product.slug}`) : null;
+  // back to the piece with this option chosen (the product page reads ?v=)
+  const productHref = product ? href(lang, `/product/${product.slug}${line.variantId && variant ? `?v=${line.variantId}` : ""}`) : null;
   const marked = flagged || Boolean(r.problem);
   const message =
     r.problem === "gone" ? c.gone
