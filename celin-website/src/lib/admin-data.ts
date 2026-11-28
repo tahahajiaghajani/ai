@@ -128,7 +128,8 @@ const RECORDING_FROM = "20261024120000_celin_admin_fixes.sql";
 /** What a recorded file brings, shown beside its name in Connections («فایل تازه» for one not listed here). */
 const FILE_REASONS: Record<string, string> = {
   [RECORDING_FROM]: "پیام‌های کد عضویت و تصاویر سفارش‌ها",
-  "20261111100000_celin_membership_pro.sql": "قیمت اعضا، Pro خودکار و مجموعه‌های سلین و میرا",
+  "20261111100000_celin_membership_pro.sql": "قیمت اعضا، Pro خودکار و مجموعه‌ی سلین",
+  "20261128100000_celin_round_six.sql": "تصاویر چرخان سرآغاز، حذف مجموعه‌ی میرا، گزینه‌های رنگ، فروش بسته‌ای سایزها و تخفیف روزهای خاص",
 };
 
 /**
