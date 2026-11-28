@@ -3,7 +3,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { assertAdmin } from "@/lib/admin-auth";
 import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
-import { loadMedia, PRODUCT_COLUMNS, PRODUCT_R6_COLUMNS, VARIANT_COLUMNS, VARIANT_COLUMNS_V1 } from "@/lib/catalog";
+import { loadMedia, PRODUCT_COLUMNS, PRODUCT_R6_COLUMNS, VARIANT_COLUMNS, VARIANT_COLUMNS_V1, variantRows } from "@/lib/catalog";
 import { METALS, STONES, SWATCH_RE, type Badge, type Metal, type ProductStatus, type Spec, type Stone, type VariantOptions } from "@/lib/catalog-types";
 import { num } from "@/lib/format";
 import type { Media } from "@/lib/media";
@@ -183,14 +183,11 @@ export async function listAdminProducts(): Promise<AdminProductListItem[] | null
     throw new Error(error.message);
   }
   const rows = (data ?? []) as (Omit<AdminProductListItem, "cover" | "variants"> & { images: string[] })[];
-  const ids = rows.map((r) => r.id);
   const variants = new Map<string, { n: number; stock: number; min: number }>();
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data: vs } = await c.from("celin_variants").select("product_id, stock").in("product_id", ids.slice(i, i + 150));
-    for (const v of (vs ?? []) as { product_id: string; stock: number }[]) {
-      const cur = variants.get(v.product_id) ?? { n: 0, stock: 0, min: Infinity };
-      variants.set(v.product_id, { n: cur.n + 1, stock: cur.stock + v.stock, min: Math.min(cur.min, v.stock) });
-    }
+  // every option (page by page: a product may hold 100), so the sums and the lowest stock are whole
+  for (const v of await variantRows<{ product_id: string; stock: number }>(c, rows.map((r) => r.id), "product_id, stock")) {
+    const cur = variants.get(v.product_id) ?? { n: 0, stock: 0, min: Infinity };
+    variants.set(v.product_id, { n: cur.n + 1, stock: cur.stock + v.stock, min: Math.min(cur.min, v.stock) });
   }
   const media = await loadMedia(rows.map((r) => r.images?.[0] ?? ""));
   return rows.map(({ images, ...r }) => {
@@ -215,9 +212,11 @@ export async function lowStockCount(threshold: number): Promise<number> {
   }
   const rows = (data ?? []) as { id: string; stock: number }[];
   const min = new Map<string, number>();
-  for (let i = 0; i < rows.length; i += 150) {
-    const { data: vs } = await c.from("celin_variants").select("product_id, stock").in("product_id", rows.slice(i, i + 150).map((r) => r.id));
-    for (const v of (vs ?? []) as { product_id: string; stock: number }[]) min.set(v.product_id, Math.min(min.get(v.product_id) ?? Infinity, v.stock));
+  try {
+    for (const v of await variantRows<{ product_id: string; stock: number }>(c, rows.map((r) => r.id), "product_id, stock")) min.set(v.product_id, Math.min(min.get(v.product_id) ?? Infinity, v.stock));
+  } catch (e) {
+    console.error("[admin] low stock", e);
+    return 0;
   }
   return rows.filter((r) => (min.get(r.id) ?? r.stock) <= threshold).length;
 }

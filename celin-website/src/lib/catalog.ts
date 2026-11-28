@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { db, isMissingColumn, isMissingTable } from "@/lib/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { allRows, db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { MEDIA_COLUMNS, rowToMedia, type Media, type MediaRow } from "@/lib/media";
@@ -172,6 +173,20 @@ export async function loadMedia(ids: Iterable<string>): Promise<Map<string, Medi
   return out;
 }
 
+/**
+ * Every variant row of these products. PostgREST returns at most 1000 rows per request, silently, and a product may
+ * hold up to 100 combinations, so each chunk of ids (URLs have a length limit) is read page by page (allRows) in
+ * a stable order — product, then the option's own order — so the pages never overlap or skip a row.
+ */
+export async function variantRows<T>(c: SupabaseClient, productIds: readonly string[], columns: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < productIds.length; i += 150) {
+    const chunk = productIds.slice(i, i + 150);
+    out.push(...(await allRows<T>((a, b) => c.from("celin_variants").select(columns).in("product_id", chunk).order("product_id").order("sort").order("id").range(a, b))));
+  }
+  return out;
+}
+
 const byOrder = <T extends { sort: number; created_at?: string }>(a: T, b: T) => a.sort - b.sort || String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
 
 async function dbCatalog(palette: OptionPalette): Promise<Catalog | null> {
@@ -192,20 +207,12 @@ async function dbCatalog(palette: OptionPalette): Promise<Catalog | null> {
     }
   }
   const products = (prods.data ?? []) as unknown as ProductRow[];
-  const variants: VariantRow[] = [];
   const ids = products.map((p) => p.id);
   // with the combinations of the colour options; before round six's database file every option is a plain one
-  let columns = VARIANT_COLUMNS;
-  for (let i = 0; i < ids.length; i += 150) {
-    const chunk = ids.slice(i, i + 150);
-    let { data, error } = await c.from("celin_variants").select(columns).in("product_id", chunk).order("sort");
-    if (error && columns === VARIANT_COLUMNS && isMissingColumn(error)) {
-      columns = VARIANT_COLUMNS_V1;
-      ({ data, error } = await c.from("celin_variants").select(columns).in("product_id", chunk).order("sort"));
-    }
-    if (error) throw new Error(error.message);
-    variants.push(...((data ?? []) as unknown as VariantRow[]));
-  }
+  const variants = await variantRows<VariantRow>(c, ids, VARIANT_COLUMNS).catch((e: { code?: string }) => {
+    if (isMissingColumn(e)) return variantRows<VariantRow>(c, ids, VARIANT_COLUMNS_V1);
+    throw e;
+  });
   const taxa = [...((cats.data ?? []) as TaxonRow[]), ...((cols.data ?? []) as TaxonRow[])];
   const media = await loadMedia([...taxa.map((t) => t.media_id ?? ""), ...products.flatMap((p) => p.images ?? []), ...variants.map((v) => v.image_id ?? "")]);
   const catSlug = new Map(((cats.data ?? []) as TaxonRow[]).map((t) => [t.id, t.slug]));
@@ -346,14 +353,11 @@ export async function proPrices(): Promise<ProPrices> {
   const rows = (data ?? []) as { id: string; price: number | null; stock: number }[];
   const out: ProPrices = {};
   for (const r of rows) out[r.id] = { price: r.price === null ? null : Number(r.price), stock: r.stock, variants: {} };
-  const ids = rows.map((r) => r.id);
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data: vs, error: ve } = await c.from("celin_variants").select("id, product_id, price, stock").in("product_id", ids.slice(i, i + 150));
-    if (ve) throw new Error(ve.message);
-    for (const v of (vs ?? []) as { id: string; product_id: string; price: number | null; stock: number }[]) {
-      const p = out[v.product_id];
-      if (p) p.variants[v.id] = { price: v.price === null ? null : Number(v.price), stock: v.stock };
-    }
+  // every option of every product (page by page), so the browser and the order action read the same book
+  const vs = await variantRows<{ id: string; product_id: string; price: number | null; stock: number }>(c, rows.map((r) => r.id), "id, product_id, price, stock");
+  for (const v of vs) {
+    const p = out[v.product_id];
+    if (p) p.variants[v.id] = { price: v.price === null ? null : Number(v.price), stock: v.stock };
   }
   return out;
 }
