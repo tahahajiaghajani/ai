@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EXHAUSTED_BATCH, HEARTBEAT_MAX_MS, HEARTBEAT_MS, LOCK_MS } from "@server/jobs";
 
 const ROOT = join(__dirname, "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf8");
@@ -88,32 +89,59 @@ describe("the web version's limits in the owner's guides", () => {
     expect(roles).toMatch(/`idle_in_transaction_session_timeout` هم به آن نمی‌رسد[^.]*`active`/);
   });
 
-  it("states the job queue's 1.1.4 rules in the engine's spec", () => {
-    const jobs = section(read("docs", "spec", "ENGINE.md"), "## 8. Jobs");
-    // a job whose worker stopped is taken over again once its lock expired, whatever its attempts: the candidate's
-    // failExhausted (failed at its last allowed attempt) was taken out of 1.1.4 — it ended healthy chains (JOBS-1)
-    expect(jobs).toMatch(/an expired lock is taken over again,\s+whatever the job's attempts/);
-    expect(jobs).not.toContain("failExhausted");
+  it("states the job queue's 1.1.5 rules in the engine's spec", () => {
+    // one line per rule, whatever the wrapping of the markdown
+    const jobs = section(read("docs", "spec", "ENGINE.md"), "## 8. Jobs").replace(/\s+/g, " ");
+    // attempts count consecutive failures: a success or `{ again }` forgives the earlier ones (a long chain is never
+    // worn down over its life)
+    expect(jobs).toContain("`{ again: ms }` reschedules, and it or a success resets `attempts` (they count consecutive failures)");
+    // a live job keeps its claim: the heartbeat renews the lock (the numbers src/server/jobs sets), save throws once lost
+    expect([LOCK_MS, HEARTBEAT_MS, HEARTBEAT_MAX_MS]).toEqual([5 * 60_000, 60_000, 2 * 3600_000]);
+    expect(jobs).toContain("a heartbeat renews the job's 5-minute lock every minute, for at most 2 hours from the claim");
+    expect(jobs).toContain("throw `JobClaimLost` once another worker holds the job");
+    // finish checks the claim: an outcome is written only by the worker that still holds the job
+    expect(jobs).toContain("every outcome is written only while this worker holds the claim (`status = 'running' and locked_by = worker`), so a lost claim writes nothing");
+    // a worker that stopped: its job is taken again while it has attempts left, else failed (failExhausted, a batch a
+    // tick) and its kind's exhausted hook finalises its row or re-arms its chain
+    expect(EXHAUSTED_BATCH).toBe(100);
+    expect(jobs).toContain("the job is taken again while it has attempts left, else failed with `EXHAUSTED_ERROR` (`failExhausted`, 100 a tick)");
+    expect(jobs).toContain("`registerJobHandler(kind, fn, { onExhausted })` or `registerJobExhausted(kind, hook)`");
+    expect(jobs).toMatch(/The hook runs after the job's update, in the job's demo scope, its error logged: it puts the kind's row in a final state [^.]*or queues a chain's next round at its interval/);
+    // never again 1.1.4's rule (an expired lock taken over whatever the job's attempts)
+    expect(jobs).not.toMatch(/whatever (the job's|its) attempts/);
     // the web version's ticks: after a write when a job is due, from other traffic at most once a minute, the cron's
     expect(jobs).toContain("queueHasDue");
     expect(jobs).toContain("trafficTickDue");
     expect(jobs).toContain("cleanup: false");
   });
 
-  it("promises no failing of a job whose worker stopped at its last attempt: that rule waits for 1.1.5", () => {
-    // RELEASE_FA, «تازه‌ها», SETUP_FA's reading of the queue query and the notes for Claude say what 1.1.4 does
+  it("tells the owner that a job whose worker stopped at its last allowed attempt is failed and counted, and the notes for Claude say so", () => {
+    // SETUP_FA's reading of the queue query (§۹-۲, query 3): the live worker's heartbeat, a stalled job taken again,
+    // failed at its last allowed attempt and counted in «سلامت سامانه» under the title the app shows
+    const guide = read("docs", "SETUP_FA.md");
+    const health = read("src", "server", "modules", "platform", "health.ts");
+    const title = /const title = "([^"]+)";\s*\n\s*if \(!j\.exhausted_24h\)/.exec(health)?.[1] ?? "";
+    expect(title).toBe("کارهای ناتمام در آخرین تلاش");
+    const stalled = guide.split("\n").find((l) => l.startsWith("- در کوئری ۳،")) ?? "";
+    expect(stalled).toContain(`کارگر زنده قفل ${fa(LOCK_MS / 60_000)} دقیقه‌ای کارش را هر دقیقه تمدید می‌کند`);
+    expect(stalled).toContain(`وقتی قفل تمام شد کار دوباره گرفته و از نو اجرا می‌شود، و اگر آخرین تلاش مجازش بود «ناموفق» می‌شود و در «${title}» شمرده می‌شود`);
+    // the health list a new installation should see includes that row
+    expect(guide).toContain(`«${title}» «هیچ کاری در ۲۴ ساعت گذشته»`);
+    // the notes for Claude: consecutive failures, the heartbeat, the claim-checked finish, failExhausted and the hook
+    const claude = (read("CLAUDE.md").split("\n").find((l) => l.startsWith("- **The web version's job queue**")) ?? "").replace(/\s+/g, " ");
+    expect(claude).toContain("`attempts` counts consecutive failures (done and `{ again }` reset it)");
+    expect(claude).toContain("a heartbeat renews a running job's 5-minute lock every minute for at most `HEARTBEAT_MAX_MS` (2 h)");
+    expect(claude).toContain("every outcome statement of `finish` checks the claim (`status = 'running' and locked_by = worker`) and a lost claim writes nothing");
+    expect(claude).toContain("the job is taken again while it has attempts left, else `failExhausted` (100 a tick) fails it with `EXHAUSTED_ERROR` and runs its kind's exhausted hook");
+    expect(claude).not.toMatch(/whatever its attempts/);
+    // 1.1.4's notes still say what 1.1.4 did: it failed no job at its last attempt (1.1.5 does)
     const notes = section(read("docs", "RELEASE_FA.md"), "## کاریز ۱٫۱٫۴");
     const changelog = read("src", "server", "modules", "admin", "changelog.ts");
     const entry = changelog.slice(changelog.indexOf('version: "1.1.4"'), changelog.indexOf('version: "1.1.3"'));
-    const guide = read("docs", "SETUP_FA.md");
     for (const [name, text] of [
       ["RELEASE_FA 1.1.4", notes],
       ["the 1.1.4 «تازه‌ها»", entry],
-      ["SETUP_FA", guide],
     ]) expect(text, name).not.toMatch(/آخرین تلاش مجاز/);
-    const claude = read("CLAUDE.md").split("\n").find((l) => l.startsWith("- **The web version's job queue**")) ?? "";
-    expect(claude).toMatch(/taken again once its lock expired, whatever its attempts/);
-    expect(claude).not.toMatch(/the expired-lock claim requires `attempts < max_attempts`/);
   });
 });
 
