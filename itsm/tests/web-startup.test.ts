@@ -399,4 +399,11 @@ describe("«تازه‌ها» of this release", () => {
     expect(beta).toMatch(/\*\*نسخهٔ وب:\*\* هنگام آماده‌سازی پایگاه داده/);
     expect(beta).toMatch(/حساب نیمه‌کاره/);
   });
+
+  it("tells people (1.1.5) a workflow step that found nobody now says why and offers to find its people again", async () => {
+    const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
+    // the owner's report of 1.1.5: «برای «مرحلهٔ فرم» کسی پیدا نشد» with holders in place
+    const entry = ADMIN_CHANGELOG.find((e) => e.version === "1.1.5");
+    expect(entry?.items.some((x) => /کسی پیدا نشد/.test(x) && /دوباره پیدا کردن انجام‌دهنده/.test(x))).toBe(true);
+  });
 });
