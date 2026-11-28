@@ -11,6 +11,7 @@ import { gsap } from "@/components/fx/gsap";
 import { OVERLAY_EVENT, useMotionReduced } from "@/components/fx/motion";
 import { SlotVideo } from "@/components/fx/slot-video";
 import { DEPTH_EVENT } from "@/components/fx/use-pointer-depth";
+import { focusStillHere, handsOnFocus } from "@/components/home/hero-focus";
 import { heroPose, offsetOf, poseStyle, ringIndex, ringLength, ringNear, STAGE_RATIO, STEP } from "@/components/home/hero-pose";
 import { Icon } from "@/components/ui/icons";
 
@@ -85,6 +86,8 @@ export function HeroArcade({
   /** the picture the counter shows (the turn's destination) */
   const [current, setCurrent] = useState(0);
   const [announce, setAnnounce] = useState("");
+  /** counts the keyboard turns that hand the focus on to the new centre link */
+  const [handOn, setHandOn] = useState(0);
 
   const region = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -94,6 +97,7 @@ export function HeroArcade({
   const target = useRef(0);
   const tween = useRef<gsap.core.Tween | null>(null);
   const moving = useRef(false);
+  /** a keyboard turn from the centre link is under way (cleared when any turn settles) */
   const refocus = useRef(false);
   const swallow = useRef(0);
   const cfg = useRef({ L, n, rtl, reduced, auto: false });
@@ -187,6 +191,9 @@ export function HeroArcade({
       moving.current = false;
       tween.current = null;
       delete stage.current?.dataset.moving;
+      // the old centre stops being a link: a keyboard turn hands the focus on, if it is still on the arches
+      if (handsOnFocus(refocus.current, stage.current, document.activeElement)) setHandOn((k) => k + 1);
+      refocus.current = false;
       setP(v);
       setSeen((s) => mergeSorted(s, ringNear(v, v, 2, L)));
       if (user) setAnnounce(`${labels.picture} ${num((v % n) + 1, lang)} ${labels.of} ${num(n, lang)}`);
@@ -285,10 +292,9 @@ export function HeroArcade({
 
   // keyboard turns keep the focus on the centre link (the old centre stops being one)
   useEffect(() => {
-    if (!refocus.current) return;
-    refocus.current = false;
+    if (!handOn || !focusStillHere(stage.current, document.activeElement, document.body)) return;
     stage.current?.querySelector<HTMLElement>("a[href]")?.focus({ preventScroll: true });
-  }, [p]);
+  }, [handOn]);
 
   // ---------------------------------------------------------------- input
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

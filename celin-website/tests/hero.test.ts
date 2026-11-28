@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FakeDb } from "./stubs/fake-db";
 import { CENTRE_H, CENTRE_W, GAP, heroPose, offsetOf, ringIndex, ringLength, ringNear, SIDE_H, SIDE_W, wrap } from "@/components/home/hero-pose";
+import { focusStillHere, handsOnFocus } from "@/components/home/hero-focus";
 import { resolveGallery } from "@/lib/slot-types";
 import type { Media } from "@/lib/media";
 
@@ -115,6 +116,30 @@ describe("the arcade's poses", () => {
     expect(offsetOf(L - 1, 0, L)).toBe(-1);
     expect(ringNear(0, 0, 1, 6)).toEqual([0, 1, 5]);
     expect(ringNear(0, 2, 2, 8)).toEqual([0, 1, 2, 3, 4, 6, 7]);
+  });
+});
+
+describe("the arcade's focus", () => {
+  it("hands the focus on after a keyboard turn only while it is still on the arches", () => {
+    const centre = { name: "the old centre link" };
+    const button = { name: "«قبلی», tabbed to during the glide" };
+    const text = { name: "a focusable block of the page, clicked during the glide" };
+    const body = { name: "body" };
+    const stage = { contains: (x: object | null) => x === centre };
+    expect(handsOnFocus(true, stage, centre)).toBe(true);
+    expect(handsOnFocus(true, stage, button)).toBe(false);
+    expect(handsOnFocus(true, stage, text)).toBe(false);
+    expect(handsOnFocus(true, stage, body)).toBe(false);
+    expect(handsOnFocus(true, stage, null)).toBe(false);
+    // only a turn asked for by the keyboard (an auto turn, a button, a swipe, a side arch never move the focus)
+    expect(handsOnFocus(false, stage, centre)).toBe(false);
+    expect(handsOnFocus(true, null, centre)).toBe(false);
+    // after the commit the old centre has dropped it to the page, or still holds it; anywhere else it stays
+    expect(focusStillHere(stage, centre, body)).toBe(true);
+    expect(focusStillHere(stage, body, body)).toBe(true);
+    expect(focusStillHere(stage, null, body)).toBe(true);
+    expect(focusStillHere(stage, button, body)).toBe(false);
+    expect(focusStillHere(stage, text, body)).toBe(false);
   });
 });
 
