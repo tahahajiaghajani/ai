@@ -135,7 +135,8 @@ html[lang="fa"] {
   color-scheme: light;
   /* Persian system faces while Nazli loads (or if it cannot): Nazanin itself where installed, then Naskh faces */
   --font-fa-system: "B Nazanin", Nazanin, "Times New Roman", "Noto Naskh Arabic", "Geeza Pro";
-  --header-h: 64px;
+  /* the header row: the logo (h-16 = 64px, lg:h-20 = 80px, header.tsx) keeps at least 4px above and below it */
+  --header-h: 72px;
   --utility-h: 32px;
   --gutter: 1rem;
 
@@ -178,7 +179,12 @@ html[lang="fa"] {
 @media (min-width: 768px) {
   :root {
     --gutter: 2rem;
-    --header-h: 76px;
+    --header-h: 80px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --header-h: 88px;
   }
 }
 @media (min-width: 1280px) {
@@ -691,7 +697,8 @@ html[data-motion="reduced"].js [data-reveal]:not([data-in]) {
   }
   html.js:not([data-motion="reduced"]) .fx-pin:not([data-static]) > .fx-pin-stage {
     position: sticky;
-    top: 0;
+    /* 0, or minus the overhang of a stage taller than the viewport (Reel sets it): its lower part stays in view */
+    top: var(--pin-top, 0px);
   }
 }
 

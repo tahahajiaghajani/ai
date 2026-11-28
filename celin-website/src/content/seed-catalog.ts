@@ -28,8 +28,7 @@ export interface SeedCollection {
   tagline_en: string;
   story_fa: string;
   story_en: string;
-  /** none: the collection shows without a picture (Mira, «به زودی») */
-  image?: SeedKey;
+  image: SeedKey;
 }
 
 /**
@@ -78,8 +77,8 @@ export const SEED_CATEGORIES: SeedCategory[] = [
   { slug: "sets", name_fa: "ست", name_en: "Sets", description_fa: "ست‌های هماهنگ برای شب‌هایی که می‌مانند.", description_en: "Matching sets for the evenings that stay with you.", image: "set-cascade" },
 ];
 
-// The owner's two collections (fifth round of notes): CELIN holds every piece; Mira is announced «به زودی»,
-// without a picture, until its pieces arrive.
+// The owner's collection (fifth and sixth rounds of notes): CELIN holds every piece; the owner adds the others
+// in the panel.
 export const SEED_COLLECTIONS: SeedCollection[] = [
   {
     slug: "celin",
@@ -91,16 +90,7 @@ export const SEED_COLLECTIONS: SeedCollection[] = [
     story_en: story.en.forWhom,
     image: "choker-rose",
   },
-  {
-    slug: "mira",
-    name_fa: "میرا",
-    name_en: "Mira",
-    tagline_fa: "",
-    tagline_en: "",
-    story_fa: "",
-    story_en: "",
-  },
-]
+];
 
 const RH: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "نقره‌ای (آبکاری رودیوم)", value_en: "Silver-tone, rhodium plated" };
 const GT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی (آبکاری طلا)", value_en: "Gold-tone" };

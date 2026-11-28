@@ -30,7 +30,8 @@ export const common = {
       searchPlaceholder: "جستجوی انگشتر، گردنبند، مجموعه…",
       account: "حساب من",
       signIn: "ورود",
-      membersSignIn: "ورود اعضا",
+      /** the top bar's second word beside «ورود»: opens the «عضویت و Pro» page (/pro) */
+      join: "عضویت",
       signUp: "ثبت‌نام",
       pro: "Pro",
       membership: "عضویت و Pro",
@@ -203,7 +204,7 @@ export const common = {
       searchPlaceholder: "Search rings, necklaces, collections…",
       account: "My account",
       signIn: "Sign in",
-      membersSignIn: "Sign in",
+      join: "Join",
       signUp: "Create account",
       pro: "Pro",
       membership: "Membership & Pro",

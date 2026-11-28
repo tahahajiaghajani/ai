@@ -20,7 +20,7 @@ import { PackChoice } from "@/components/product/pack-choice";
 const h = vi.hoisted(() => ({ db: null as unknown, jar: null as unknown, headers: {} as Record<string, string>, later: [] as (() => unknown)[], team: [] as string[] }));
 
 vi.mock("next/headers", () => ({ cookies: async () => h.jar, headers: async () => new Headers(h.headers) }));
-vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined }));
+vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined, refresh: () => undefined }));
 vi.mock("next/server", () => ({ after: (fn: () => unknown) => void h.later.push(fn) }));
 vi.mock("@/lib/notify", () => ({ notifyTeam: async (text: string) => void h.team.push(text) }));
 vi.mock("next/navigation", () => ({

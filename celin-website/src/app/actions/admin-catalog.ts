@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { refresh as refreshRouter } from "next/cache";
 import { guard } from "@/lib/admin-action";
-import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveOptionPalette, saveProduct, saveTaxon, seedMediaId, starterPending, type TaxonKind } from "@/lib/admin-catalog";
+import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveOptionPalette, saveProduct, saveTaxon, seedMediaId, setTaxonVisible, starterPending, type TaxonKind } from "@/lib/admin-catalog";
 import { DEFAULT_OPTIONS } from "@/lib/options";
 import { deleteMedia, listLibrary, mediaInOrders, mediaUsage, updateMedia } from "@/lib/admin-media";
 import { loadMedia } from "@/lib/catalog";
@@ -16,8 +16,9 @@ import { num } from "@/lib/format";
 
 const kindOf = (v: unknown): TaxonKind => (v === "collections" ? "collections" : "categories");
 
+/** The panel page the action came from is rendered again into its answer (the public pages: catalogChanged). */
 function refresh() {
-  revalidatePath("/admin", "layout");
+  refreshRouter();
 }
 
 export async function adminSaveProduct(input: Record<string, unknown>): Promise<Result<{ id: string }>> {
@@ -55,7 +56,8 @@ export async function adminQuickUpdate(input: Record<string, unknown>): Promise<
     if ("status" in input) patch.status = input.status;
     await quickUpdate(text(input.id, 40), patch);
     refresh();
-    return { ok: true, message: "ذخیره شد." };
+    const message = patch.status === "published" ? "در سایت منتشر شد." : patch.status === "draft" ? "به پیش‌نویس برگشت؛ در سایت دیده نمی‌شود." : "ذخیره شد.";
+    return { ok: true, message };
   });
 }
 
@@ -80,6 +82,16 @@ export async function adminSaveTaxon(input: Record<string, unknown>): Promise<Re
     const id = await saveTaxon(kindOf(input.kind), text(input.id, 40) || null, input);
     refresh();
     return { ok: true, message: "ذخیره شد.", id };
+  });
+}
+
+/** The «نمایش» switch of a category or collection row: visibility only. */
+export async function adminSetTaxonVisible(input: Record<string, unknown>): Promise<Result<{ visible: boolean }>> {
+  return guard(async () => {
+    const visible = input.visible === true;
+    await setTaxonVisible(kindOf(input.kind), text(input.id, 40), visible);
+    refresh();
+    return { ok: true, message: visible ? "در سایت نمایش داده می‌شود." : "از سایت پنهان شد.", visible };
   });
 }
 

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { adminDeleteTaxon, adminReorderTaxa, adminSaveTaxon } from "@/app/actions/admin-catalog";
+import { adminDeleteTaxon, adminReorderTaxa, adminSaveTaxon, adminSetTaxonVisible } from "@/app/actions/admin-catalog";
 import type { Taxon, TaxonKind } from "@/lib/admin-catalog";
 import type { Media } from "@/lib/media";
 import { num } from "@/lib/format";
 import { Badge, Button, ConfirmButton, Dialog, Empty, Field, Input, PageHeader, Spinner, Tabs, Textarea, Toggle } from "@/components/admin/ui";
 import { toast, useAction } from "@/components/admin/toast";
+import { usePending } from "@/components/admin/pending";
 import { SLUG_RE, slugify } from "@/components/admin/catalog-labels";
 import { ImageDropzone } from "@/components/admin/image-dropzone";
 import { MediaEditDialog } from "@/components/admin/media-edit";
@@ -28,7 +29,15 @@ const blank = (sort: number): Draft => ({ id: null, slug: "", name_fa: "", name_
 export function TaxaManager({ kind, items, media: initialMedia, counts, totals }: { kind: TaxonKind; items: Taxon[]; media: Record<string, Media>; counts: Record<string, number>; totals: Record<TaxonKind, number> }) {
   const w = WORDS[kind];
   const [list, setList] = useState(items);
-  useEffect(() => setList(items), [items]);
+  // a pressed «نمایش» switch (or a saved sheet) shows the row's new state at once, before the refreshed page arrives
+  const shown = usePending(items, (t) => t.visible);
+  // the refreshed page's rows are taken in the same render as the pending switches are let go (not in an effect a
+  // frame later), so a switch never shows its old state in between
+  const [seen, setSeen] = useState(items);
+  if (seen !== items) {
+    setSeen(items);
+    setList(items);
+  }
   const [media, setMedia] = useState(initialMedia);
   useEffect(() => setMedia((m) => ({ ...m, ...initialMedia })), [initialMedia]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -42,7 +51,8 @@ export function TaxaManager({ kind, items, media: initialMedia, counts, totals }
     const next = [...list];
     const [x] = next.splice(i, 1);
     next.splice(to, 0, x);
-    setList(next);
+    // the order is the index (as reorderTaxa stores it), so a sheet saved before the refresh keeps the new order
+    setList(next.map((t, j) => ({ ...t, sort: j })));
     order.run(() => adminReorderTaxa({ kind, ids: next.map((t) => t.id) }), { onError: () => setList(items) });
   };
   const draftMedia = draft?.media_id ? media[draft.media_id] ?? null : null;
@@ -75,27 +85,46 @@ export function TaxaManager({ kind, items, media: initialMedia, counts, totals }
             {order.pending && <Spinner className="size-3.5" />}
           </div>
           <ul className="divide-y divide-line">
-            {list.map((t, i) => (
-              <TaxonRow
-                key={t.id}
-                t={t}
-                kind={kind}
-                media={t.media_id ? media[t.media_id] : undefined}
-                count={counts[t.id] ?? 0}
-                first={i === 0}
-                last={i === list.length - 1}
-                busy={order.pending}
-                onUp={() => moveTo(i, i - 1)}
-                onDown={() => moveTo(i, i + 1)}
-                onEdit={() => setDraft({ ...t })}
-              />
-            ))}
+            {list.map((row, i) => {
+              const t = { ...row, visible: shown.get(row.id, row.visible) };
+              return (
+                <TaxonRow
+                  key={t.id}
+                  t={t}
+                  kind={kind}
+                  media={t.media_id ? media[t.media_id] : undefined}
+                  count={counts[t.id] ?? 0}
+                  first={i === 0}
+                  last={i === list.length - 1}
+                  busy={order.pending}
+                  onUp={() => moveTo(i, i - 1)}
+                  onDown={() => moveTo(i, i + 1)}
+                  onEdit={() => setDraft({ ...t })}
+                  onVisible={(v) => shown.set(t.id, v)}
+                  onVisibleFailed={() => shown.drop(t.id)}
+                />
+              );
+            })}
           </ul>
         </div>
       )}
 
       <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} title={draft?.id ? `ویرایش ${w.one}` : w.fresh} side>
-        {draft && <TaxonForm key={draft.id ?? "new"} kind={kind} draft={draft} setDraft={(fn) => setDraft((d) => (d ? fn(d) : d))} media={draftMedia} onPick={() => setPicker(true)} onFocal={() => setFocal(true)} onUploaded={putMedia} onDone={() => setDraft(null)} count={draft.id ? counts[draft.id] ?? 0 : 0} />}
+        {draft && (
+          <TaxonForm
+            key={draft.id ?? "new"}
+            kind={kind}
+            draft={draft}
+            setDraft={(fn) => setDraft((d) => (d ? fn(d) : d))}
+            media={draftMedia}
+            onPick={() => setPicker(true)}
+            onFocal={() => setFocal(true)}
+            onUploaded={putMedia}
+            onSaved={(id, visible) => shown.set(id, visible)}
+            onDone={() => setDraft(null)}
+            count={draft.id ? counts[draft.id] ?? 0 : 0}
+          />
+        )}
       </Dialog>
       {/* siblings of the sheet, not inside it: nested <dialog>s would pass their close event up to the sheet */}
       <MediaPicker
@@ -124,6 +153,8 @@ function TaxonRow({
   onUp,
   onDown,
   onEdit,
+  onVisible,
+  onVisibleFailed,
 }: {
   t: Taxon;
   kind: TaxonKind;
@@ -135,9 +166,16 @@ function TaxonRow({
   onUp: () => void;
   onDown: () => void;
   onEdit: () => void;
+  onVisible: (visible: boolean) => void;
+  onVisibleFailed: () => void;
 }) {
   const vis = useAction();
-  const toggle = () => vis.run(() => adminSaveTaxon({ kind, ...t, visible: !t.visible }), { silent: true, onOk: () => toast(true, t.visible ? "از سایت پنهان شد." : "در سایت نمایش داده می‌شود.") });
+  // the switch moves at once and goes back if the change fails; only `visible` is written (adminSetTaxonVisible)
+  const toggle = () => {
+    const visible = !t.visible;
+    onVisible(visible);
+    vis.run(() => adminSetTaxonVisible({ kind, id: t.id, visible }), { onError: onVisibleFailed });
+  };
   return (
     <li data-taxon={t.slug} className="grid grid-cols-[56px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[56px_minmax(0,1fr)_auto]">
       <button type="button" onClick={onEdit} className="row-span-2 self-start sm:row-span-1 sm:self-center" tabIndex={-1} aria-hidden>
@@ -196,6 +234,7 @@ function TaxonForm({
   onPick,
   onFocal,
   onUploaded,
+  onSaved,
   onDone,
   count,
 }: {
@@ -206,6 +245,8 @@ function TaxonForm({
   onPick: () => void;
   onFocal: () => void;
   onUploaded: (m: Media) => void;
+  /** an existing row was saved: its «نمایش» switch shows the saved state at once */
+  onSaved: (id: string, visible: boolean) => void;
   onDone: () => void;
   count: number;
 }) {
@@ -226,7 +267,12 @@ function TaxonForm({
     const first = Object.values(e)[0];
     if (first) return toast(false, first);
     const { id, ...rest } = draft;
-    save.run(() => adminSaveTaxon({ kind, ...(id ? { id } : {}), ...rest, slug }), { onOk: onDone });
+    save.run(() => adminSaveTaxon({ kind, ...(id ? { id } : {}), ...rest, slug }), {
+      onOk: () => {
+        if (id) onSaved(id, rest.visible);
+        onDone();
+      },
+    });
   };
 
   return (

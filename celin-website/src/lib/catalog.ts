@@ -4,7 +4,7 @@ import { db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { MEDIA_COLUMNS, rowToMedia, type Media, type MediaRow } from "@/lib/media";
-import type { Catalog, Category, Collection, Product, ProPrices, Spec, Variant } from "@/lib/catalog-types";
+import { withCovers, type Catalog, type Category, type Collection, type Product, type ProPrices, type Spec, type Variant } from "@/lib/catalog-types";
 import { axesOf, paletteOf, readOptions, type OptionPalette } from "@/lib/options";
 import { packsOf } from "@/lib/packs";
 import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS, seedVariantFields } from "@/content/seed-catalog";
@@ -44,7 +44,7 @@ function seedCatalog(palette: OptionPalette): Catalog {
     tagline_en: c.tagline_en,
     story_fa: c.story_fa,
     story_en: c.story_en,
-    media: c.image ? SEED_MEDIA[c.image] : null,
+    media: SEED_MEDIA[c.image],
     sort: i,
     visible: true,
     soon: !SEED_PRODUCTS.some((p) => p.collection === c.slug),
@@ -289,8 +289,9 @@ async function loadCatalog(): Promise<Catalog> {
   // strict (see catalogInDbStrict); the colour lists name the axes of every product (a change to them invalidates "catalog")
   const s = await getSettingsFresh();
   const palette = paletteOf(s.options);
-  if (!(db() && s.catalog.initialized)) return seedCatalog(palette);
-  return (await dbCatalog(palette)) ?? seedCatalog(palette);
+  const catalog = db() && s.catalog.initialized ? ((await dbCatalog(palette)) ?? seedCatalog(palette)) : seedCatalog(palette);
+  // a collection without a picture of its own shows its first piece's
+  return withCovers(catalog);
 }
 
 // every admin change invalidates the tag at once; the timer is only a safety net for edits made in SQL
@@ -310,7 +311,7 @@ export async function getCatalog(): Promise<Catalog> {
   } catch (e) {
     console.error("[catalog]", e);
     if (db()) throw e;
-    return seedCatalog(paletteOf(undefined));
+    return withCovers(seedCatalog(paletteOf(undefined)));
   }
 }
 

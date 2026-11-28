@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { refresh as refreshRouter } from "next/cache";
 import { guard } from "@/lib/admin-action";
 import {
   approveRequest,
@@ -22,8 +22,9 @@ import { text, type Result } from "@/lib/action";
 
 /** Admin: accounts, membership requests and codes, Pro. Every action runs through guard() (session check first). */
 
+/** The panel page the action came from is rendered again into its answer. */
 function refresh() {
-  revalidatePath("/admin", "layout");
+  refreshRouter();
 }
 
 /** What actually carried the code to the member; `warn` when nothing did (the admin sends it with the buttons). */

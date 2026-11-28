@@ -39,7 +39,7 @@ import { productCopy } from "@/content/copy/product";
 const h = vi.hoisted(() => ({ db: null as unknown, jar: null as unknown }));
 
 vi.mock("next/headers", () => ({ cookies: async () => h.jar, headers: async () => new Headers({ "x-forwarded-for": "198.51.100.9" }) }));
-vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined }));
+vi.mock("next/cache", () => ({ unstable_cache: <T>(fn: T) => fn, revalidatePath: () => undefined, revalidateTag: () => undefined, refresh: () => undefined }));
 vi.mock("next/server", () => ({ after: () => undefined }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {

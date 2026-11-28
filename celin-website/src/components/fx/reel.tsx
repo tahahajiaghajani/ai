@@ -17,6 +17,15 @@ export function reelOverflow(row: { left: number; right: number }, last: { left:
   return Math.max(0, length - width);
 }
 
+/**
+ * How much of a pinned stage would hang below the viewport while it sticks: the stage then sticks that much above
+ * the top (--pin-top), so its lower part — the row and the names under the arches — stays in view and only the top
+ * padding or the heading is trimmed. Zero when the stage fits (the usual case: the cards are sized to fit, home/sections).
+ */
+export function pinOverhang(stage: number, viewport: number): number {
+  return Math.max(0, Math.ceil(stage - viewport));
+}
+
 function overflowOf(el: HTMLElement): number {
   const last = el.lastElementChild;
   if (!last) return 0;
@@ -27,9 +36,10 @@ function overflowOf(el: HTMLElement): number {
 /**
  * A row that, on large screens with a mouse, stays in view while vertical scrolling moves it sideways (in the
  * reading direction: right-to-left in Persian). The stage sticks with CSS (.fx-pin, globals.css) over --pin, the
- * row's overflow; ScrollTrigger only scrubs the row. On touch screens, small screens and with reduced motion it is
- * a plain swipeable row with snap points. `progress` gets a 0–1 scale as --p (a copper line). Keyboard focus on a
- * card scrolls the page to the point where that card is in view.
+ * row's overflow, at --pin-top (pinOverhang: a stage taller than the viewport sticks with its lower part in view);
+ * ScrollTrigger only scrubs the row, over the same span. On touch screens, small screens and with reduced motion it
+ * is a plain swipeable row with snap points. `progress` gets a 0–1 scale as --p (a copper line). Keyboard focus on
+ * a card scrolls the page to the point where that card is in view.
  */
 export function Reel({ children, header, className = "", trackClassName = "" }: { children: ReactNode; header?: ReactNode; className?: string; trackClassName?: string }) {
   const root = useRef<HTMLDivElement>(null);
@@ -43,13 +53,18 @@ export function Reel({ children, header, className = "", trackClassName = "" }: 
       mm.add(PINNED, () => {
         const host = root.current!;
         const el = track.current!;
+        const stage = host.firstElementChild as HTMLElement;
         // a band left static by the boot failsafe (no sticky stage) stays a plain swipeable row
         if (sceneMode(host) !== "pin") return;
         const rtl = getComputedStyle(el).direction === "rtl";
         host.dataset.pinned = "";
         const dist = () => overflowOf(el);
-        // the sticky distance is the row's overflow (measured before every refresh)
-        const setPin = () => host.style.setProperty("--pin", `${dist()}px`);
+        const over = () => pinOverhang(stage.offsetHeight, window.innerHeight);
+        // the sticky distance is the row's overflow, the sticky top the stage's overhang (measured before every refresh)
+        const setPin = () => {
+          host.style.setProperty("--pin", `${dist()}px`);
+          stage.style.setProperty("--pin-top", `${-over()}px`);
+        };
         setPin();
         ScrollTrigger.addEventListener("refreshInit", setPin);
         const tween = gsap.to(el, {
@@ -57,7 +72,8 @@ export function Reel({ children, header, className = "", trackClassName = "" }: 
           ease: "none",
           scrollTrigger: {
             trigger: host,
-            start: "top top",
+            // the stage sticks once its top is `over` above the viewport's top: the scrub starts there too
+            start: () => `top top-=${over()}`,
             end: () => `+=${dist()}`,
             scrub: 0.7,
             invalidateOnRefresh: true,
@@ -69,6 +85,7 @@ export function Reel({ children, header, className = "", trackClassName = "" }: 
           ScrollTrigger.removeEventListener("refreshInit", setPin);
           trigger.current = null;
           host.style.removeProperty("--pin");
+          stage.style.removeProperty("--pin-top");
           delete host.dataset.pinned;
         };
       });

@@ -69,7 +69,7 @@ Rules: Persian digits on fa pages (`num`, `formatPrice`, `formatDate`); Latin sn
 | `.fx-parallax`, `.fx-drift`, `.fx-arrive` | CSS scroll-driven (compositor only): a picture drifting inside its frame / a layer drifting slower (`--drift` > 0) or faster (`--drift` < 0) than the page / a block rising softly out of the band above as it arrives. No JS; off with reduced motion; static where unsupported |
 | `Sparkles` | glints detected on the bright facets of the parent's `<img>` (any uploaded photo) |
 | `Aura palette="espresso|paraiba|cocoa|porcelain"` | WebGL silk light behind a band (CSS mesh fallback) |
-| `Reel` | horizontal row that stays in view on desktop while vertical scrolling moves it (reading direction), swipe row on touch; keyboard focus scrolls to the focused card |
+| `Reel` | horizontal row that stays in view on desktop while vertical scrolling moves it (reading direction), swipe row on touch; keyboard focus scrolls to the focused card. Its stage must fit the viewport while pinned (the home arcade sizes its cards from `100svh` and shrinks its paddings on short screens); a stage still taller sticks with its lower part in view (`--pin-top`), so what sits at its foot — the names under the arches — is never under the fold |
 | `.fx-pin` / `.fx-pin-stage` | scenes that stay in view (Reel, the arch window, the timeline): CSS `sticky` over `--pin`, ScrollTrigger only scrubs — never GSAP `pin` (layout shift, a jump at the pin) |
 | `Magnetic` | main CTA leans to the pointer |
 | `Cursor` | copper glint; `data-cursor="view"` (+ `data-cursor-label`) opens a disc over pictures; `data-tone="light"` on dark bands |
@@ -81,6 +81,7 @@ Rules: LCP picture eager (`priority`), no motion that blocks reading, ≤ 3 WebG
 
 ## Layout and components
 
+- Header: `--header-h` is 72px, 80px from 768px and 88px from 1024px; the full logo inside it is 64px tall (80px from 1024px), scaled whole, with at least 4px above and below. The top bar's words are «ورود» and «عضویت» (Sign in / Join) in the same quiet type; anything that sits under or below the header uses `var(--header-h)`, never a fixed number.
 - `container-lux` (max 1440px, gutters 16/32/56px). Section rhythm `py-20 sm:py-28/32`. Every page hero may sit under the transparent header: give the band `data-header="dark"` and `-mt-[var(--header-h)]` (+ top padding) and the header turns light over it.
 - `SectionHead` (`src/components/home/sections.tsx`): diamond eyebrow → Nazli title (rising words, `title-section`; `display` prop = the home page's large scale) → optional link.
 - Home statement (`Statement`): under the hero, the night melts into porcelain (`bg-dawn`) while an asymmetric collage straddles the turn — a tall arch with ring and keystone (`home.statement`) and a smaller matted arch at another scale overlapping its lower corner (`home.statement.b`), at three drift speeds — beside the three lines (Nazli 700, the middle one in living metal) signed with the monogram. Phones: collage above, pictures stay large.

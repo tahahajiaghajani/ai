@@ -620,6 +620,21 @@ export async function saveTaxon(kind: TaxonKind, id: string | null, input: Recor
   return out;
 }
 
+/**
+ * Only the «نمایش» switch of a row: writes `visible` and nothing else, so a row drawn from an older copy of the list
+ * never writes its other fields (picture, order, texts) back over fresher ones.
+ */
+export async function setTaxonVisible(kind: TaxonKind, id: string, visible: boolean): Promise<void> {
+  await assertAdmin();
+  const gone = () => new UserError("این مورد پیدا نشد؛ صفحه را دوباره باز کنید.");
+  if (!UUID.test(id)) throw gone();
+  const c = requireDb();
+  const { data, error } = await c.from(`celin_${kind}`).update({ visible, updated_at: new Date().toISOString() }).eq("id", id).select("id");
+  if (error) throw dbError(error);
+  if (!((data ?? []) as unknown[]).length) throw gone();
+  await catalogChanged();
+}
+
 export async function deleteTaxon(kind: TaxonKind, id: string): Promise<void> {
   await assertAdmin();
   const c = requireDb();
@@ -697,7 +712,7 @@ export async function importStarter(): Promise<{ products: number; categories: n
   const c = requireDb();
   const keys = new Set<SeedKey>();
   SEED_CATEGORIES.forEach((x) => keys.add(x.image));
-  SEED_COLLECTIONS.forEach((x) => x.image && keys.add(x.image));
+  SEED_COLLECTIONS.forEach((x) => keys.add(x.image));
   SEED_PRODUCTS.forEach((p) => {
     p.images.forEach((k) => keys.add(k));
     p.variants.forEach((v) => v.image && keys.add(v.image));
@@ -724,7 +739,7 @@ export async function importStarter(): Promise<{ products: number; categories: n
   );
   const cols = await upsertTaxa(
     "collections",
-    SEED_COLLECTIONS.map((x, i) => ({ slug: x.slug, name_fa: x.name_fa, name_en: x.name_en, tagline_fa: x.tagline_fa, tagline_en: x.tagline_en, story_fa: x.story_fa, story_en: x.story_en, media_id: x.image ? media.get(x.image) ?? null : null, sort: i })),
+    SEED_COLLECTIONS.map((x, i) => ({ slug: x.slug, name_fa: x.name_fa, name_en: x.name_en, tagline_fa: x.tagline_fa, tagline_en: x.tagline_en, story_fa: x.story_fa, story_en: x.story_en, media_id: media.get(x.image) ?? null, sort: i })),
   );
 
   const { data: haveP, error: pe } = await c.from("celin_products").select("slug");

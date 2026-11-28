@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BOOT } from "@/components/site/boot-script";
-import { reelOverflow } from "@/components/fx/reel";
+import { pinOverhang, reelOverflow } from "@/components/fx/reel";
 import { sceneMode } from "@/components/fx/use-gsap";
 
 /** Runs the inline boot script against a tiny stand-in for the browser. */
@@ -58,6 +58,18 @@ describe("pinned reel distance", () => {
   });
   it("is zero when every card fits", () => {
     expect(reelOverflow({ left: 0, right: 1366 }, { left: 900, right: 1200 }, 56, 1366, false)).toBe(0);
+  });
+});
+
+describe("pinned stage taller than the viewport", () => {
+  it("sticks that much above the top, so the row and the names under the arches stay in view", () => {
+    expect(pinOverhang(838, 650)).toBe(188);
+    // rounded up: not a hair of the names under the fold
+    expect(pinOverhang(690.4, 650)).toBe(41);
+  });
+  it("sticks at the top when the stage fits", () => {
+    expect(pinOverhang(700, 900)).toBe(0);
+    expect(pinOverhang(900, 900)).toBe(0);
   });
 });
 
