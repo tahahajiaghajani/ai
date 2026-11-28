@@ -20,7 +20,8 @@ import { Picture } from "@/components/ui/picture";
 
 /**
  * A row of the editor: a stored or new option; `off` = a combination of the grid that is not made (not saved);
- * `orig` = the combination a stored option was opened with (syncCombos reuses it only for that combination).
+ * `orig` = the combination a stored option was opened with (syncCombos reuses it only for that combination, or for it
+ * with a whole axis added or dropped).
  */
 export type VariantRow = Omit<AdminVariant, "sort"> & { k: number; off?: boolean; orig?: VariantOptions };
 export type Axes = Record<OptionAxis, string[]>;
