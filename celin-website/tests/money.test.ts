@@ -232,8 +232,25 @@ describe("the basket: a single line and pack lines of one option share its stock
   });
 
   it("the message says the stock and what the other lines already hold", () => {
-    expect(accountCopy("fa").cart.overShared("۱۲۰", "۹۹")).toBe("فقط ۱۲۰ عدد موجود است و ۹۹ عدد آن در اقلام دیگر همین گزینه است");
-    expect(accountCopy("en").cart.overShared("120", "99")).toBe("Only 120 in stock, and 99 of them are in your other lines of this option");
+    expect(accountCopy("fa").cart.overShared("۱۲۰", "۹۹")).toBe("فقط ۱۲۰ عدد موجود است؛ اقلام دیگر همین گزینه ۹۹ عدد دارند");
+    expect(accountCopy("en").cart.overShared("120", "99")).toBe("Only 120 in stock; your other lines of this option hold 99");
+    expect(accountCopy("en").cart.overShared("120", "1")).toBe("Only 120 in stock; your other lines of this option hold 1");
+  });
+
+  it("stock dropped below what the other lines hold: room 0, no fix button, and the message does not claim the others hold part of the stock", () => {
+    // Pro, stock 50, 99 singles + 3 four-size packs (the stock was lowered after the lines were added)
+    const few = { productId: "p", variantId: "v", qty: 3, pack: 4 };
+    const lines = [singles, few];
+    const r = lineRoom(lines, few, 50, exact);
+    expect(r).toEqual({ others: 99, room: 0 });
+    expect(maxPacks(4, r.room)).toBe(0); // no «تغییر به … بسته»: the other lines must come down
+    expect(lineRoom(lines, singles, 50, exact)).toEqual({ others: 12, room: 38 }); // «تغییر به ۳۸» there
+    for (const lang of ["fa", "en"] as const) {
+      const text = accountCopy(lang).cart.overShared("50", "99");
+      expect(text).not.toMatch(/of them|عدد آن/);
+      expect(text).toContain("50");
+      expect(text).toContain("99");
+    }
   });
 });
 
