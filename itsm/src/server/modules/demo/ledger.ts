@@ -150,11 +150,17 @@ export async function reclaimLeftovers(tx: Queryable, orgId: string): Promise<nu
  * Idempotent (a tombstone is not written again).
  */
 export async function tombstoneAccount(q: Queryable, orgId: string, userId: string): Promise<void> {
+  await tombstoneAccounts(q, orgId, [userId]);
+}
+
+/** `tombstoneAccount` for many accounts in one statement (the purge's accounts go a chunk at a time). */
+export async function tombstoneAccounts(q: Queryable, orgId: string, userIds: readonly string[]): Promise<void> {
+  if (!userIds.length) return;
   await q.query(
-    `update sm_users set email = $3, full_name = $4, mobile = null, password_hash = null, recovery_hash = null, disabled = true,
+    `update sm_users set email = 'purged.' || lower(id::text) || '@demo.invalid', full_name = $3, mobile = null, password_hash = null, recovery_hash = null, disabled = true,
             prefs = jsonb_build_object('demo_purged', $2::text)
-      where id = $1 and coalesce(prefs ->> 'demo_purged', '') = ''`,
-    [userId, orgId, `purged.${userId.toLowerCase()}@demo.invalid`, PURGED_ACCOUNT_NAME],
+      where id = any($1::uuid[]) and coalesce(prefs ->> 'demo_purged', '') = ''`,
+    [pgArray([...userIds]), orgId, PURGED_ACCOUNT_NAME],
   );
 }
 

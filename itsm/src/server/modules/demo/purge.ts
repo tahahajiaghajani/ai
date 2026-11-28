@@ -59,7 +59,7 @@ import { BY_TABLE } from "../../sync/registry";
 import { notePurged, notePurgedHere } from "../../sync/snapshot";
 import { DEMO_JOB_SQL } from "../../jobs";
 import { ABOUT_COLUMNS, fieldRefs, ID_TEXT, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_DERIVES } from "./refs";
-import { isPurgedSql, tombstoneAccount } from "./ledger";
+import { isPurgedSql, tombstoneAccounts } from "./ledger";
 
 export interface ColInfo {
   name: string;
@@ -296,9 +296,19 @@ const payloadNamesDemo = (j: string) => `exists (select 1 from regexp_matches(${
 const ORG_PASS = (j: string) =>
   `(${j}.dedupe_key is not distinct from ${j}.kind and ${j}.status in ('queued', 'running') and not coalesce(${j}.payload ? '__demo', false))`;
 
-/** Does the organisation have rows in the table at all? (most tables of a young organisation are empty) */
-async function hasRows(q: Queryable, t: TableInfo, orgId: string): Promise<boolean> {
-  return !!(await q.one(`select 1 from ${ident(t.name)} where org_id = $1 limit 1`, [orgId]));
+/**
+ * The tables (of `names`, each with an `org_id`) where the organisation has rows — most of an organisation's tables are
+ * empty — a hundred tables a statement instead of a statement per table: on the web a round trip costs 2–6 ms, and a
+ * step walks hundreds of tables.
+ */
+export async function populatedTables(q: Queryable, orgId: string, names: readonly string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let i = 0; i < names.length; i += 100) {
+    const part = names.slice(i, i + 100);
+    const rows = await q.query<{ t: string }>(part.map((n) => `select ${lit(n)}::text as t where exists (select 1 from ${ident(n)} where org_id = $1)`).join(" union all "), [orgId]);
+    for (const r of rows) out.add(r.t);
+  }
+  return out;
 }
 
 /** Does json column `col` of the row aliased `x` name a demo row of the organisation ($1) anywhere? */
@@ -394,11 +404,17 @@ const MAX_ROUNDS = 16;
  */
 export async function expandStep(q: Queryable, orgId: string, info: TableInfo[], cur: ExpandCursor, until = Infinity, since: string | null = null): Promise<boolean> {
   const tables = info.filter((t) => !SKIP.has(t.name) && hasIdOrg(t)).map((t) => ({ t, conds: derivedConds(t, since) })).filter((x) => x.conds.length);
+  // which of them hold rows of the organisation at all: one look for all of them (most of an organisation's tables are
+  // empty; the derivation only adds to the registry, so the answer holds for the whole step)
+  const filled = await populatedTables(q, orgId, tables.map((x) => x.t.name));
+  // a step that starts with no time left still moves: at least one table a step
+  let did = false;
   while (cur.round < MAX_ROUNDS) {
     for (; cur.i < tables.length; cur.i++) {
-      if (Date.now() > until) return false;
+      if (did && Date.now() > until) return false;
       const { t, conds } = tables[cur.i];
-      if (!(await hasRows(q, t, orgId))) continue;
+      if (!filled.has(t.name)) continue;
+      did = true;
       const tbl = lit(t.arc && t.def ? t.def.table : t.name);
       const r = await q.one<{ n: number }>(
         `with ins as (
@@ -561,16 +577,23 @@ export interface RemoveCursor {
   restarted?: boolean;
   removed: number;
   tombstones: number;
+  /** a table whose bulk delete failed, its rows going one by one: the last row done, and the rows that could not go */
+  slow?: { table: string; row: string | null; failed: number; reason: string } | null;
 }
 
 export const newRemoveCursor = (): RemoveCursor => ({ after: null, removed: 0, tombstones: 0 });
 
+/** Registry rows of a table the row-by-row removal reads at a time. */
+const SLOW_BATCH = 200;
+
 /**
  * Remove (or tombstone) the registry's rows, table by table until `until` (ms since the epoch): returns whether every
  * table is done (`cur` moves on; the next call resumes). Each table's statement runs in a savepoint; when it fails, the
- * table's rows go one by one, each in its own savepoint, and a row that cannot go is reported (`skipped`) — never
- * blocking the rest. A hard delete of rows Windows apps hold — without tombstones (no app was active), or the
- * tombstones themselves (`finalizeDemo`) — raises the purge watermark in the same transaction (`notePurge`).
+ * table's rows still there go one by one, each in its own savepoint, until the budget too (from `cur.slow`), and a row
+ * that cannot go is reported (`skipped`) — never blocking the rest. At least one table, or one row, a step: a step that
+ * starts with no time left still moves. A hard delete of rows Windows apps hold — without tombstones (no app was
+ * active), or the tombstones themselves (`finalizeDemo`) — raises the purge watermark in the same transaction
+ * (`notePurge`).
  */
 export async function removeStep(
   q: Queryable, orgId: string, info: TableInfo[], opts: { tombstones: boolean }, cur: RemoveCursor, until = Infinity, skipped: Skipped[] = [],
@@ -585,14 +608,18 @@ export async function removeStep(
   const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_rows where org_id = $1 order by tbl`, [orgId])).map((r) => r.tbl);
   // the registry shrinks as tables are done (jobs leave it): walk it by name, not by position
   const todo = tables.filter((name) => cur.after === null || name > cur.after);
+  let did = false;
+  const stop = async () => {
+    await notePurge(q, orgId, held);
+    return false;
+  };
   for (const name of todo) {
-    if (Date.now() > until) {
-      await notePurge(q, orgId, held);
-      return false;
-    }
+    if (did && Date.now() > until) return stop();
     const t = byName.get(name);
-    cur.after = name;
-    if (!t || name === "sm_users") continue;
+    if (!t || name === "sm_users") {
+      cur.after = name;
+      continue;
+    }
     const mine = `(select row_id from sm_demo_rows where org_id = $1 and tbl = ${lit(name)})`;
     const one = async (where: string, params: unknown[]): Promise<void> => {
       if (name === "sm_jobs") {
@@ -618,20 +645,41 @@ export async function removeStep(
       }
       cur.removed += (await q.query(`delete from ${ident(name)} where org_id = $1 and id in ${ids} returning id`, params)).length;
     };
-    const all = await inSavepoint(q, () => one("all", [orgId]));
-    if (all.ok) continue;
-    // one by one: a row that cannot go is reported, the rest go
-    const rows = await q.query<{ row_id: string }>(`select row_id from sm_demo_rows where org_id = $1 and tbl = ${lit(name)}`, [orgId]);
-    let failed = 0;
-    let reason = failReason(all.error);
-    for (const r of rows) {
-      const x = await inSavepoint(q, () => one("row", [orgId, r.row_id]));
-      if (!x.ok) {
-        failed++;
-        reason = failReason(x.error);
+    if (cur.slow?.table !== name) {
+      const all = await inSavepoint(q, () => one("all", [orgId]));
+      did = true;
+      if (all.ok) {
+        cur.after = name;
+        continue;
       }
+      cur.slow = { table: name, row: null, failed: 0, reason: failReason(all.error) };
     }
-    if (failed) skipped.push({ phase: "remove", table: name, rows: failed, reason });
+    // one by one, from where the last step stopped: a row that cannot go is reported, the rest go — only the rows still
+    // there (or still to tombstone), in the table or in its archive
+    const slow = cur.slow!;
+    const arc = t.def && archivable(t.def) && byName.has(archiveTableOf(t.def)) ? archiveTableOf(t.def) : null;
+    const left = `(exists (select 1 from ${ident(name)} x where x.id = d.row_id${opts.tombstones && t.synced ? " and x.deleted_at is null" : ""})${arc ? ` or exists (select 1 from ${ident(arc)} a where a.id = d.row_id)` : ""})`;
+    for (;;) {
+      const rows = await q.query<{ row_id: string }>(
+        `select d.row_id::text as row_id from sm_demo_rows d where d.org_id = $1 and d.tbl = ${lit(name)}${slow.row ? " and d.row_id > $2::uuid" : ""} and ${left}
+          order by d.row_id limit ${SLOW_BATCH}`,
+        slow.row ? [orgId, slow.row] : [orgId],
+      );
+      for (const r of rows) {
+        if (did && Date.now() > until) return stop();
+        const x = await inSavepoint(q, () => one("row", [orgId, r.row_id]));
+        did = true;
+        if (!x.ok) {
+          slow.failed++;
+          slow.reason = failReason(x.error);
+        }
+        slow.row = r.row_id;
+      }
+      if (rows.length < SLOW_BATCH) break;
+    }
+    if (slow.failed) skipped.push({ phase: "remove", table: name, rows: slow.failed, reason: slow.reason });
+    cur.slow = null;
+    cur.after = name;
   }
   await notePurge(q, orgId, held);
   // tables without row ids: what names a demo row goes (extracted pages, flow timers, scope epochs, links of directory
@@ -661,46 +709,68 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
   return { removed: cur.removed, tombstones: cur.tombstones };
 }
 
+/** Where `removeAccounts` is: the last account done (the registry's accounts in id order), and the counts so far. */
+export interface AccountsCursor {
+  after: string | null;
+  removed: number;
+  kept: number;
+}
+
+export const newAccountsCursor = (): AccountsCursor => ({ after: null, removed: 0, kept: 0 });
+
+/** Accounts `removeAccounts` takes at a time: a few set-based statements for the chunk, not six for each account. */
+const ACCOUNTS_CHUNK = 200;
+
 /**
  * The pack's accounts: removed unless they belong to another organisation too (then only the demo mark goes). Their
  * memberships are synchronised rows: while the purge leaves tombstones (`tombstones`) a membership stays one — the
  * capture's tombstone from `removeRows`, or one made here for a membership the capture did not see — so that every
- * Windows app learns of it, and `finalizeDemo` removes it; otherwise it goes now and raises the purge watermark.
+ * Windows app learns of it, and `finalizeDemo` removes it; otherwise it goes now and raises the purge watermark. A chunk
+ * of accounts at a time, in id order from `cur`, until `until` (at least one chunk a step): `done` when every account
+ * is.
  */
-export async function removeAccounts(q: Queryable, orgId: string, opts: { tombstones?: boolean } = {}): Promise<{ removed: number; kept: number }> {
-  const users = await q.query<{ id: string; elsewhere: boolean }>(
-    `select d.row_id as id,
-            exists (select 1 from sm_org_members m where m.user_id = d.row_id and m.org_id <> $1 and m.deleted_at is null) as elsewhere
-       from sm_demo_rows d where d.org_id = $1 and d.tbl = 'sm_users'`,
-    [orgId],
-  );
-  let removed = 0;
-  let kept = 0;
-  const held: Gone[] = [];
-  for (const u of users) {
+export async function removeAccounts(
+  q: Queryable, orgId: string, opts: { tombstones?: boolean } = {}, cur: AccountsCursor = newAccountsCursor(), until = Infinity,
+): Promise<{ removed: number; kept: number; done: boolean }> {
+  for (let did = false; ; did = true) {
+    if (did && Date.now() > until) return { removed: cur.removed, kept: cur.kept, done: false };
+    const users = await q.query<{ id: string; elsewhere: boolean; email: string | null }>(
+      `select d.row_id::text as id,
+              exists (select 1 from sm_org_members m where m.user_id = d.row_id and m.org_id <> $1 and m.deleted_at is null) as elsewhere,
+              (select u.email from sm_users u where u.id = d.row_id) as email
+         from sm_demo_rows d where d.org_id = $1 and d.tbl = 'sm_users'${cur.after ? " and d.row_id > $2::uuid" : ""}
+        order by d.row_id limit ${ACCOUNTS_CHUNK}`,
+      cur.after ? [orgId, cur.after] : [orgId],
+    );
+    if (!users.length) return { removed: cur.removed, kept: cur.kept, done: true };
+    const all = pgArray(users.map((u) => u.id));
+    const held: Gone[] = [];
     // a membership, a session or a sign-in record the capture did not see (outside any organisation's scope)
-    if (opts.tombstones) await q.query(`update sm_org_members set deleted_at = now(), is_active = false where org_id = $1 and user_id = $2 and deleted_at is null`, [orgId, u.id]);
-    else held.push(await deleteHeld(q, `delete from sm_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]));
-    await q.query(`delete from sm_sessions where user_id = $1 and (org_id = $2 or org_id is null or $3::boolean = false)`, [u.id, orgId, u.elsewhere]);
-    // sign-in records stay (docs/DEMO_FA.md): who signed in as a demo account, and when, is never erased
-    await q.query(`delete from sm_scope_epochs where user_id = $1 and org_id = $2`, [u.id, orgId]);
-    if (u.elsewhere) {
-      // kept for its other memberships, but no longer signs in with the demo's shared password, and signed out
+    if (opts.tombstones) await q.query(`update sm_org_members set deleted_at = now(), is_active = false where org_id = $1 and user_id = any($2::uuid[]) and deleted_at is null`, [orgId, all]);
+    else held.push(await deleteHeld(q, `delete from sm_org_members where org_id = $1 and user_id = any($2::uuid[])`, [orgId, all]));
+    // signed out everywhere (an account kept for another organisation too: it no longer signs in with the demo's
+    // shared password); sign-in records stay (docs/DEMO_FA.md): who signed in as a demo account, and when, is never erased
+    await q.query(`delete from sm_sessions where user_id = any($1::uuid[])`, [all]);
+    await q.query(`delete from sm_scope_epochs where org_id = $1 and user_id = any($2::uuid[])`, [orgId, all]);
+    for (const u of users.filter((x) => x.elsewhere)) {
+      // kept for its other memberships, but no longer signs in with the demo's shared password
       await q.query(`update sm_users set prefs = prefs - 'demo_org', password_hash = case when password_hash is null then null else $3 end where id = $1 and prefs ->> 'demo_org' = $2`, [u.id, orgId, await hashPassword(readableCode(6, 4))]);
-      await q.query(`delete from sm_sessions where user_id = $1`, [u.id]);
-      kept++;
-      continue;
     }
-    const email = await q.one<{ email: string }>(`select email from sm_users where id = $1`, [u.id]);
-    if (email) await q.query(`delete from sm_auth_throttle where lower(subject) = lower($1) or key like $2`, [email.email, `%${email.email.toLowerCase()}%`]);
+    const gone = users.filter((x) => !x.elsewhere);
+    const emails = gone.flatMap((u) => (u.email ? [u.email.toLowerCase()] : []));
+    if (emails.length) await q.query(`delete from sm_auth_throttle where lower(subject) = any($1::text[]) or key like any($2::text[])`, [pgArray(emails), pgArray(emails.map((m) => `%${m}%`))]);
     // while Windows apps hold the members: a content-free account tombstone they delete the account by (ledger.ts),
     // removed for good with the memberships' tombstones (finalizeDemo)
-    if (opts.tombstones) await tombstoneAccount(q, orgId, u.id);
-    else await q.query(`delete from sm_users where id = $1`, [u.id]);
-    removed++;
+    if (gone.length) {
+      if (opts.tombstones) await tombstoneAccounts(q, orgId, gone.map((u) => u.id));
+      else await q.query(`delete from sm_users where id = any($1::uuid[])`, [pgArray(gone.map((u) => u.id))]);
+    }
+    await notePurge(q, orgId, held);
+    cur.removed += gone.length;
+    cur.kept += users.length - gone.length;
+    cur.after = users[users.length - 1].id;
+    if (users.length < ACCOUNTS_CHUNK) return { removed: cur.removed, kept: cur.kept, done: true };
   }
-  await notePurge(q, orgId, held);
-  return { removed, kept };
 }
 
 /** Files of demo attachments no remaining attachment of the organisation uses. */
@@ -842,7 +912,7 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
     let ids: string[];
     if (opts.tombstones && t.synced && heldByApps(table)) {
       // Windows apps hold copies: a tombstone each (removed for good by finalizeDemo); the registry carries it on, and
-      // its journal, history, attachments and links join it by reference in the finish phase (expandDerived)
+      // its journal, history, attachments and links join it by reference in the finish phase (its late derivation, `expandStep`)
       ids = (await q.query<{ id: string }>(`update ${ident(table)} x set ${tombstoneSet(t)} where ${since} returning x.id`, [orgId])).map((r) => String(r.id));
     } else {
       const gone = await q.query<{ id: string; rev?: string | number | null; deleted_at?: string | null }>(
@@ -1096,10 +1166,13 @@ export interface Unattributed {
  */
 export async function unattributedReport(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<Unattributed[]> {
   const out: Unattributed[] = [];
-  for (const t of info) {
-    if (SKIP.has(t.name) || !t.def || t.arc || !hasIdOrg(t) || !t.cols.has("created_at") || !t.cols.has("created_by")) continue;
-    const conds = fieldRefs(t.def).filter((f) => !f.array && !f.custom).map((f) => names(t, f.name)).filter((c): c is string => !!c);
-    if (!conds.length || !(await hasRows(q, t, orgId))) continue;
+  const work = info
+    .filter((t) => !SKIP.has(t.name) && !!t.def && !t.arc && hasIdOrg(t) && t.cols.has("created_at") && t.cols.has("created_by"))
+    .map((t) => ({ t, conds: fieldRefs(t.def!).filter((f) => !f.array && !f.custom).map((f) => names(t, f.name)).filter((c): c is string => !!c) }))
+    .filter((x) => x.conds.length);
+  const filled = await populatedTables(q, orgId, work.map((x) => x.t.name));
+  for (const { t, conds } of work) {
+    if (!filled.has(t.name)) continue;
     const n = await q.one<{ n: number }>(
       `select count(*)::int as n from ${ident(t.name)} x
         where x.org_id = $1 and x.created_at > $2::timestamptz and x.created_by is null and not ${isDemo("x.id")} and (${conds.join(" or ")})`,
