@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { href, num, t, type Lang } from "@/lib/i18n";
 import { collectionsCopy } from "@/content/copy/collections";
 import { Arch } from "@/components/fx/arch";
@@ -14,14 +15,14 @@ import { Picture } from "@/components/ui/picture";
 import { Eyebrow } from "@/components/house/bits";
 
 /**
- * /collections — every visible collection as an arcade of arch tiles on one long night ground (the header
- * stays light over it): staggered columns, a champagne sill under each arch (the collection's picture, else its
- * first piece's), and on hover another picture of its pieces fades in through the arch. Static; no prices.
+ * /collections — every listed collection (shown, with a picture: `listed`) as an arcade of arch tiles on one long
+ * night ground (the header stays light over it): staggered columns, a champagne sill under each arch (the collection's
+ * picture, else its first piece's), and on hover another picture of its pieces fades in through the arch. Static; no prices.
  */
 export async function CollectionsPage({ lang }: { lang: Lang }) {
   const catalog = await getCatalog();
   const c = collectionsCopy[lang];
-  const collections = catalog.collections.filter((k) => k.visible !== false);
+  const collections = catalog.collections.filter(listed);
   const pieces = (slug: string) => catalog.products.filter((p) => p.collection === slug);
 
   return (
@@ -60,7 +61,6 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                   <Link href={href(lang, `/collections/${k.slug}`)} className="group block text-center" data-cursor="view" data-cursor-label={c.index.discover}>
                     <div className="relative px-2 pt-2 sm:px-3 sm:pt-3">
                       <Arch media={k.media} lang={lang} sizes="(min-width: 1024px) 22vw, 46vw" ring="champagne" unveil delay={(i % 4) * 120} sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:8px] sm:[--ring-gap:10px]" priority={i < 2}>
-                        {!k.media && <span aria-hidden className="absolute inset-0 bg-mesh-cocoa" />}
                         {hover && (
                           <div aria-hidden className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-700 ease-[var(--ease-lux)] [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100">
                             <Picture media={hover} lang={lang} alt="" sizes="(min-width: 1024px) 22vw, 1px" className="absolute! inset-0 h-full" imgClassName="scale-105 transition-transform duration-[1.4s] ease-[var(--ease-out-expo)] group-hover:scale-100" />

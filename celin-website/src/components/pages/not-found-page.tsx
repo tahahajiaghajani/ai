@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { href, t, type Lang } from "@/lib/i18n";
 import { errorCopy } from "@/content/copy/errors";
 import { Arch } from "@/components/fx/arch";
@@ -16,7 +17,7 @@ import { NightDoor } from "@/components/house/night-door";
 export async function NotFoundPage({ lang }: { lang: Lang }) {
   const c = errorCopy[lang].notFound;
   const catalog = await getCatalog().catch(() => null);
-  const collections = (catalog?.collections ?? []).filter((k) => k.visible !== false && k.media).slice(0, 3);
+  const collections = (catalog?.collections ?? []).filter(listed).slice(0, 3);
   return (
     <main>
       <NightDoor lang={lang} under code={c.code} eyebrow={c.eyebrow} title={c.title} body={c.body} background={<Aura palette="espresso" light={0.85} />}>

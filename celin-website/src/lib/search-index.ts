@@ -1,5 +1,6 @@
 import "server-only";
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { common } from "@/content/copy/common";
 import { valueWord } from "@/lib/options";
 import type { SearchItem } from "@/lib/search";
@@ -12,7 +13,7 @@ const PAGES: SearchItem[] = [
   { kind: "page", slug: "maison", path: "/maison", name_fa: "داستان سلین", name_en: "Our story", sub_fa: "گالری اعتماد، از ۱۳۸۵", sub_en: "Etemad Gallery, since 2006", terms: "درباره داستان گالری اعتماد about story etemad gallery" },
 ];
 
-/** Products, collections, categories and a few service pages, without prices. */
+/** Products, the listed collections (`listed`), categories and a few service pages, without prices. */
 export async function buildSearchIndex(): Promise<SearchItem[]> {
   const cat = await getCatalog();
   const catName = new Map(cat.categories.map((c) => [c.slug, c]));
@@ -45,7 +46,7 @@ export async function buildSearchIndex(): Promise<SearchItem[]> {
       ].join(" "),
     };
   });
-  const collections: SearchItem[] = cat.collections.map((c) => ({
+  const collections: SearchItem[] = cat.collections.filter(listed).map((c) => ({
     kind: "collection",
     slug: c.slug,
     path: `/collections/${c.slug}`,
@@ -53,7 +54,7 @@ export async function buildSearchIndex(): Promise<SearchItem[]> {
     name_en: `${c.name_en} collection`,
     sub_fa: c.tagline_fa,
     sub_en: c.tagline_en,
-    media: c.media ? { src: c.media.src, ext: c.media.ext, widths: c.media.widths, placeholder: c.media.placeholder, fx: c.media.fx, fy: c.media.fy } : null,
+    media: { src: c.media.src, ext: c.media.ext, widths: c.media.widths, placeholder: c.media.placeholder, fx: c.media.fx, fy: c.media.fy },
     terms: "کالکشن مجموعه collection",
   }));
   const categories: SearchItem[] = cat.categories.map((c) => ({

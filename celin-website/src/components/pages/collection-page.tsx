@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import { getCatalog } from "@/lib/catalog";
-import type { Product } from "@/lib/catalog-types";
+import { listed, type Product } from "@/lib/catalog-types";
 import { env } from "@/lib/env";
 import { href, num, t, type Lang } from "@/lib/i18n";
 import { jsonLd } from "@/lib/seo";
@@ -44,7 +44,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
   const tagline = t(col, "tagline", lang);
   const storyText = t(col, "story", lang);
   const products = catalog.products.filter((p) => p.collection === col.slug);
-  const others = catalog.collections.filter((k) => k.slug !== col.slug && k.visible !== false && (k.media || k.soon));
+  const others = catalog.collections.filter((k) => k.slug !== col.slug && listed(k));
   // the story's picture: a worn (second) photo of a piece, else a cover — never the hero's own picture
   const pictures = [...products.flatMap((p) => p.images.slice(1)), ...products.map((p) => p.images[0])].filter(Boolean);
   const worn = pictures.find((m) => m.src !== col.media?.src) ?? null;

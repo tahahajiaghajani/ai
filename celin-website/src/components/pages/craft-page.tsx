@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { getSlots, type ResolvedSlot } from "@/lib/slots";
 import { href, type Lang } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
@@ -26,7 +27,7 @@ export async function CraftPage({ lang }: { lang: Lang }) {
   const s = (key: string) => slots[key] as ResolvedSlot;
   const txt = slotReader(slots, lang);
   const c = craftCopy[lang];
-  const firstCollection = catalog.collections.find((k) => k.visible !== false && k.media);
+  const firstCollection = catalog.collections.find(listed);
 
   const steps = [1, 2, 3, 4].map((i) => ({
     title: txt(`home.craft.${i}`, "title"),

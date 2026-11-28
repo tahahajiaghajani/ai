@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { getSettings } from "@/lib/settings";
 import { getSlots, slotText } from "@/lib/slots";
 import { t, type Lang } from "@/lib/i18n";
@@ -23,7 +24,7 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
   const promo = slots["menu.promo"];
   const menu: MenuData = {
     categories: catalog.categories.map((c) => ({ slug: c.slug, name: t(c, "name", lang), media: c.media })),
-    collections: catalog.collections.map((c) => ({ slug: c.slug, name: t(c, "name", lang), tagline: t(c, "tagline", lang) || (c.soon ? collectionsCopy[lang].soon : "") })),
+    collections: catalog.collections.filter(listed).map((c) => ({ slug: c.slug, name: t(c, "name", lang), tagline: t(c, "tagline", lang) || (c.soon ? collectionsCopy[lang].soon : "") })),
     promo: promo ? { media: promo.media, title: slotText(promo, "title", lang), cta: slotText(promo, "cta", lang), href: slotText(promo, "href", lang) || "/shop" } : null,
   };
   const suggestions = searchSuggestions(catalog, lang);
