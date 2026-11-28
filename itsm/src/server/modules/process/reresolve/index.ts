@@ -6,14 +6,17 @@
 //     only when that step does the same (fill, review, approve); the step's form and rights stay the case version's.
 //     Journaled (and audited) whatever it finds;
 //   · by the organisation's `process.reresolve` job, a little after holders, positions, group members, groups' roles,
-//     members' roles or units, or memberships change, whichever path changed them (./queue.ts) — the picker's promise
-//     «با پیدا شدن دارنده، مرحله به او می‌رسد»:
+//     members' roles or units, memberships, or units' heads, activity, kinds or places in the tree change, whichever
+//     path changed them (./queue.ts), and when a holding or a group membership written with a later start starts (its
+//     own pass then, engine-access-4) — the picker's promise «با پیدا شدن دارنده، مرحله به او می‌رسد»:
 //     only rounds that wait with nobody (more than the step takes waits for the managers to choose), with the case
 //     version's rules, journaled when someone is found. A round that has any task — a manager gave it to someone — is
 //     the managers' and stays as it is, as does a case they paused.
 // A re-resolution never skips a step: «از این مرحله بگذرد» counts as «منتظر بماند» here (a skipped approval would be an
 // approval nobody gave). Each case under its lock, in a transaction of its own; a case of the demo pack's inside its
 // demo scope (docs/DEMO_FA.md), any other outside it. Only where cases advance.
+import { DEFAULT_TIMEZONE } from "@shared/constants";
+import { localDate, zonedMidnight } from "@shared/model/jalali-buckets";
 import { formStepOf, quorumOf, type FormStep } from "@shared/process/graph";
 import { STEP_ACTION_LABELS, tooManyMessage, poolLimit } from "@shared/process/assignees";
 import type { Ctx, ServerConfig } from "../../../context";
@@ -28,9 +31,9 @@ import { caseJournal } from "../engine/journal";
 import { caseTasks, loadVersionInfo, lockCase, peopleNames, stepWaitKey } from "../engine/store";
 import { addReaders } from "../engine/readers";
 import { formNode, managersNotice, nobodyLine, openRoundTasks, waitingLine, waitState } from "../engine/waiting";
-import { RERESOLVE_JOB, queueReresolve } from "./queue";
+import { RERESOLVE_JOB, queueReresolve, queueReresolveAt } from "./queue";
 
-export { RERESOLVE_JOB, queueReresolve, queueReresolveIn } from "./queue";
+export { RERESOLVE_JOB, queueReresolve, queueReresolveAt, queueReresolveIn, STARTS_MARGIN_MS } from "./queue";
 
 export interface RoundOutcome {
   status: "ok" | "managers" | "nobody" | "too_many";
@@ -240,6 +243,39 @@ export async function reresolveWaiting(cfg: ServerConfig, orgId: string, opts: {
 
 /** The fields of a member profile whose change may give a waiting step people (roles, unit, manager). */
 const PROFILE_FIELDS = ["roles", "org_unit_id", "manager_id"];
+/**
+ * The fields of a unit whose change may give a waiting step people: its head («رئیس واحد»), whether it is active
+ * («نزدیک‌ترین واحد بالادست» and «رئیس واحد» of a kind pass over inactive units), its kind (rules of a unit kind) and its
+ * place in the tree (the chain up from a unit). A new unit holds nobody yet, and one with units under it is not removed.
+ */
+const UNIT_FIELDS = ["manager_id", "active", "kind", "parent_id", "path"];
+
+/** The organisation's time zone (the day holders' periods are in), read by id. */
+async function timeZoneOf(q: Queryable, orgId: string): Promise<string> {
+  const org = await q.one<{ tz: string | null }>(`select settings ->> 'timezone' as tz from sm_orgs where id = $1`, [orgId]);
+  return org?.tz || DEFAULT_TIMEZONE;
+}
+
+/**
+ * A holding or a group membership whose period starts later — a holder «از تاریخ» a later day of the organisation, a
+ * member «معتبر از» a later moment — queues a pass for when it starts (`queueReresolveAt`): the quiet half minute's
+ * finds nobody yet, and nothing else would look again (engine-access-4, 1.1.5).
+ */
+async function queueWhenItStarts(q: Queryable, orgId: string, table: string, id: string): Promise<void> {
+  if (table === "position_holder") {
+    const row = await q.one<{ starts: string | null }>(`select valid_from::text as starts from sm_position_holders where org_id = $1 and id = $2 and deleted_at is null`, [orgId, id]);
+    const day = row?.starts ? String(row.starts).slice(0, 10) : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    const tz = await timeZoneOf(q, orgId);
+    if (day > localDate(Date.now(), tz)) await queueReresolveAt(q, orgId, zonedMidnight(day, tz));
+    return;
+  }
+  if (table === "group_member") {
+    const row = await q.one<{ at: number | string | null }>(`select (extract(epoch from valid_from) * 1000)::float8 as at from sm_group_members where org_id = $1 and id = $2 and deleted_at is null`, [orgId, id]);
+    const at = row?.at === null || row?.at === undefined ? NaN : Number(row.at);
+    if (Number.isFinite(at) && at > Date.now()) await queueReresolveAt(q, orgId, at);
+  }
+}
 
 let installed = false;
 
@@ -260,9 +296,11 @@ export function installReresolve(): void {
     async (e, jctx) => {
       if (!e.org_id) return;
       if (e.table === "member_profile" && e.kind === "record.updated" && !(e.changed ?? []).some((c) => PROFILE_FIELDS.includes(c))) return;
+      if (e.table === "org_unit" && (e.kind !== "record.updated" || !(e.changed ?? []).some((c) => UNIT_FIELDS.includes(c)))) return;
       await queueReresolve(jctx.db, e.org_id);
+      if (e.kind !== "record.deleted") await queueWhenItStarts(jctx.db, e.org_id, e.table, e.id);
     },
-    { tables: ["position", "position_holder", "group", "group_member", "member_profile", "role"], kinds: ["record.created", "record.updated", "record.deleted"] },
+    { tables: ["position", "position_holder", "group", "group_member", "member_profile", "role", "org_unit"], kinds: ["record.created", "record.updated", "record.deleted"] },
   );
 }
 
