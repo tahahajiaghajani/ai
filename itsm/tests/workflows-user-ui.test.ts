@@ -57,6 +57,9 @@ import WorkflowsPage from "../src/ui/modules/workflows/user/WorkflowsPage";
 import { Talk } from "../src/ui/modules/workflows/user/CasePage";
 import { useWaitingSteps } from "../src/ui/modules/workflows/user/waiting";
 import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
+import { SessionProvider } from "../src/ui/lib/session";
+import Help from "../src/ui/modules/settings/Help";
+import { POSITION_WHERE_LABELS } from "@shared/process/assignees";
 import { ApiError, type OrgApi } from "../src/ui/lib/api";
 import type { Schema } from "../src/ui/records/model/schema";
 import type { Client } from "./helpers";
@@ -985,5 +988,65 @@ describe("1.1.5: «کارتابل» rows (B5) and the «توضیح» hint (B6)",
     expect(commentHint(step({ action: "approve", outcomes: ["approved", "rejected"] }))).toBe("برای «رد» دلیل را بنویسید");
     // the owner's «مرحلهٔ فرم» (only «ارسال و پایان») read «برای «رد» و «بازگشت» دلیل را بنویسید»
     expect(commentHint(step({ action: "fill", outcomes: ["submitted"], next: { submitted: "پایان" } }))).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// «راهنما» (explanations live there, not on the pages)
+
+describe("«راهنما» says what 1.1.5 does with a step's people — the owner's «کسی پیدا نشد»", () => {
+  const help = () => render("org-1", createElement(SessionProvider, null, createElement(Help)));
+  /** An article's words: tags dropped, entities read, spaces single. */
+  const article = (html: string, id: string) => {
+    const at = html.indexOf(`<article id="${id}"`);
+    expect(at, `no article «${id}»`).toBeGreaterThan(-1);
+    return html
+      .slice(at, html.indexOf("</article>", at))
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;|&#39;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ");
+  };
+
+  it("«گردش‌کارهای من»: a step nobody was found for says so, its managers see why and «دوباره پیدا کردن انجام‌دهنده», and it looks again when people are added", () => {
+    const mine = article(help(), "workflows");
+    // the words the case page shows (waitingLine) and the managers' action (CasePage)
+    expect(mine).toContain(`«${waitingLine({ reason: "nobody", message: "", notes: [] } as never, false)!.text}»`);
+    expect(mine).toContain("«دوباره پیدا کردن انجام‌دهنده»");
+    expect(mine).toMatch(/پس از افزودن دارندهٔ نقش یا عضو گروه خودش دوباره جست‌وجو می‌کند/);
+  });
+
+  it("«طراحی گردش‌کار»: the «کجا» a role starts with, and that the demo pack's holders take only cases demo accounts start", () => {
+    const design = article(help(), "workflows_admin");
+    expect(design).toContain(`«${POSITION_WHERE_LABELS.anywhere}»`);
+    expect(POSITION_WHERE_LABELS.requester_unit_up.startsWith("نزدیک‌ترین واحد بالادست")).toBe(true);
+    expect(design).toContain("«نزدیک‌ترین واحد بالادست»");
+    // the owner built the workflow on the pack's roles and started it as himself: nobody was found
+    expect(design).toMatch(/دارندگان نمایشی[^.]*فقط[^.]*پرونده‌هایی[^.]*حساب‌های نمایشی آغاز/);
+    expect(design).toMatch(/با یکی از حساب‌های نمایشی بیازمایید/);
+  });
+
+  it("«داده‌های نمایشی»: the pack's forms are tabbed («زبانه‌دار», never «چندزبانه» — many languages) and its fields, roles and people say «نمایشی»", () => {
+    const demo = article(help(), "demo");
+    expect(demo).toContain("فرم‌های زبانه‌دار");
+    expect(demo).not.toContain("چندزبانه");
+    expect(demo).toContain("برچسب «نمایشی»");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// the record kit on a phone (the same grid the process form uses)
+
+describe("the record kit's form on a phone", () => {
+  it("1.1.5: on a phone the record kit's grid drops its column gaps too, so a record page's fields stay inside their section", () => {
+    // RecordForm lays every record page out on the same 24-column grid: on a phone each field takes the whole row, but
+    // the 23 column gaps stayed, wider than a 375 px screen's form (its section's content box), so every field of
+    // «کار تازه» was drawn from x = -26 against a section from 16 (scripts/ui-shots.mjs: «… outside their form section»)
+    const records = readFileSync(join(__dirname, "../src/ui/records/records.css"), "utf8").replace(/\s+/g, " ");
+    const gap = Number(/\.rk-grid \{ display: grid; grid-template-columns: repeat\(24, minmax\(0, 1fr\)\); gap: \d+px (\d+)px; \}/.exec(records)?.[1]);
+    const phoneForm = 375 - 2 * 16 - 2 * (16 + 1); // the page's gutters, the section's padding and border
+    expect(23 * gap).toBeGreaterThan(phoneForm);
+    expect(records).toContain("@media (max-width: 639.98px) { .rk-grid { column-gap: 0; } .rk-f { grid-column: 1 / -1; } }");
   });
 });

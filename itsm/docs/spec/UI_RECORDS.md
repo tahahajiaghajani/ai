@@ -343,8 +343,9 @@ changes data; forms keep their own draft, so a refresh never resets what someone
 - Every page starts with `PageHeader`; explanations belong in «راهنما», the screens carry one short hint at most.
 - Accessibility: labels on every control, focus rings, `aria-live` only where something changes for the person
   (bulk results, SLA thresholds, the filter sentence), every drag has a click alternative, 24 px targets.
-- Phone (≤ 640 px): cards instead of tables, single-column forms, the side panel under the form, boards scroll inside
-  themselves — never the page sideways.
+- Phone (≤ 640 px): cards instead of tables, single-column forms (the grid drops its column gaps: 23 gaps of 16 px are
+  wider than a phone's form), the side panel under the form, boards scroll inside themselves — never the page sideways,
+  and no field drawn past its section (`scripts/ui-shots.mjs` flags «… outside their form section»).
 - Keyboard map: lists `j`/`k`/`Enter`/`x`/`/`/`Esc`; record `Alt+S` save, `Esc` cancel, double click or the pencil to
   edit a field; composer `Ctrl+Enter`, `Ctrl+B`/`Ctrl+I`, `@` mentions.
 
