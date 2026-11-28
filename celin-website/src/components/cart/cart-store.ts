@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { basketPieces } from "@/lib/basket";
 import { MAX_LINES, MAX_QTY, type CartLine } from "@/lib/order-meta";
 
 /**
@@ -107,6 +108,7 @@ export function useCart(): CartLine[] {
   );
 }
 
+/** Every piece in the basket (src/lib/basket.ts): what the quantity step counts. */
 export function useCartCount(): number {
-  return useCart().reduce((n, l) => n + l.qty, 0);
+  return basketPieces(useCart());
 }

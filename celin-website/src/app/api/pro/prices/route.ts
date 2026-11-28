@@ -4,6 +4,7 @@ import { proStatus } from "@/lib/pro";
 import { getSettings } from "@/lib/settings";
 import { MAX_QTY } from "@/lib/order-meta";
 import { pricingFor } from "@/lib/pricing";
+import { liveSale } from "@/lib/sale";
 import type { ProPrices } from "@/lib/catalog-types";
 
 /**
@@ -36,7 +37,8 @@ export const dynamic = "force-dynamic";
  * Prices for members and Pro accounts only, and stock for Pro accounts only. Public pages never contain them: the price layer asks here
  * after the readable hint says this browser has a membership, and the session is checked again on every call.
  * `prices` are the admin's prices; `pricing` says what this account sees and pays (src/lib/pricing.ts): members
- * the list price with steps by pieces, Pro the admin's price.
+ * the list price with steps by pieces, Pro the admin's price; and the special-day discount while it runs by the
+ * server's clock (src/lib/sale.ts) — the order action decides again at its own moment.
  */
 export async function GET() {
   const headers = { "cache-control": "private, no-store" };
@@ -52,7 +54,7 @@ export async function GET() {
     // stock is for Pro accounts only (the owner's rule); members get availability, never numbers
     const showStock = pro.level === "pro";
     const shown = !showStock ? availability(prices) : s.shop.stockDisplay === "level" ? levelled(prices, s.shop.lowStock) : prices;
-    return Response.json({ prices: shown, pricing: pricingFor(pro.level, s.pro), showStock, stockDisplay: s.shop.stockDisplay, lowStock: showStock ? s.shop.lowStock : 0, minOrder: s.shop.minOrder }, { headers });
+    return Response.json({ prices: shown, pricing: pricingFor(pro.level, s.pro, liveSale(s.sale, pro.level, Date.now())), showStock, stockDisplay: s.shop.stockDisplay, lowStock: showStock ? s.shop.lowStock : 0, minOrder: s.shop.minOrder }, { headers });
   } catch (e) {
     console.error("[pro prices]", e);
     return Response.json({ error: "failed" }, { status: 503, headers });

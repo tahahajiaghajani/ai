@@ -2,6 +2,7 @@ import "server-only";
 import { db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { storageBase } from "@/lib/catalog";
 import { folderUrl } from "@/lib/media";
+import { linePieces } from "@/lib/basket";
 import { pricingArg, type Pricing } from "@/lib/pricing";
 import { ACCEPTED_STATUSES, MAX_LINES, MAX_QTY, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
 
@@ -37,30 +38,40 @@ export function cleanLines(input: unknown): CartLine[] {
 }
 
 export type PlaceError =
-  | { reason: "empty" | "no_account" | "unavailable" | "failed" }
-  | { reason: "out_of_stock" | "product_unavailable" | "variant_unavailable" | "variant_required" | "no_price"; id: string };
+  | { reason: "empty" | "no_account" | "unavailable" | "price_changed" | "failed" }
+  | { reason: "out_of_stock" | "product_unavailable" | "variant_unavailable" | "variant_required" | "no_price" | "pack_unavailable"; id: string };
 
 /** Turns the database function's exception ("out_of_stock:<id>") into a reason the page can explain. */
 export function parsePlaceError(message: string): PlaceError {
-  const m = /(out_of_stock|product_unavailable|variant_unavailable|variant_required|no_price):([0-9a-f-]{36})/i.exec(message);
+  const m = /(out_of_stock|product_unavailable|variant_unavailable|variant_required|no_price|pack_unavailable):([0-9a-f-]{36})/i.exec(message);
   if (m) return { reason: m[1] as "out_of_stock", id: m[2] };
+  if (/price_changed/.test(message)) return { reason: "price_changed" };
   if (/empty_order/.test(message)) return { reason: "empty" };
   if (/no_account/.test(message)) return { reason: "no_account" };
-  if (/bad_qty|too_many_items/.test(message)) return { reason: "failed" };
+  // bad_qty / bad_pack / too_many_items / bad_pricing: the site never sends them; nothing the member can fix
   return { reason: "failed" };
 }
 
 /**
- * Places the order with the account's price rules (celin_place_order with p_pricing). Until round five's database
- * file has run that function does not exist and ordering reads as «not set up yet» — never the older function,
- * which would charge members the admin's price.
+ * Places the order with the account's price rules (celin_place_order with p_pricing and p_expect). `expect` is the
+ * total the action computed from the same lines and rules (src/lib/pricing.ts invoice, which the member confirmed):
+ * the database computes its own and places nothing when the two differ ('price_changed'). Until round six's
+ * database file has run that function does not exist and ordering reads as «not set up yet» — never an older
+ * function, which knew neither packs nor the special-day discount.
  */
-export async function placeOrder(userId: string, lines: CartLine[], customer: Customer, note: string, pricing: Pricing): Promise<{ ok: true; id: string; code: string } | { ok: false; error: PlaceError }> {
+export async function placeOrder(
+  userId: string,
+  lines: CartLine[],
+  customer: Customer,
+  note: string,
+  pricing: Pricing,
+  expect: number,
+): Promise<{ ok: true; id: string; code: string } | { ok: false; error: PlaceError }> {
   const c = db();
   if (!c) return { ok: false, error: { reason: "unavailable" } };
   if (!lines.length) return { ok: false, error: { reason: "empty" } };
-  const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: l.qty }));
-  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing) });
+  const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: linePieces(l) }));
+  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing), p_expect: Math.round(expect) });
   let { data, error } = await call();
   // a deadlock (40P01) rolls the whole order back: one more try is safe
   if (error && (error.code === "40P01" || /deadlock detected/i.test(error.message))) ({ data, error } = await call());
@@ -68,6 +79,8 @@ export async function placeOrder(userId: string, lines: CartLine[], customer: Cu
     if (isMissingTable(error) || error.code === "PGRST202") return { ok: false, error: { reason: "unavailable" } };
     const parsed = parsePlaceError(error.message);
     if (parsed.reason === "failed") console.error("[orders] place", error.message);
+    // the site and the database disagree on the total: a price changed at that moment, or the two computations drifted
+    if (parsed.reason === "price_changed") console.warn(`[orders] price_changed: the site expected ${Math.round(expect)}`);
     return { ok: false, error: parsed };
   }
   const row = (Array.isArray(data) ? data[0] : data) as { order_id: string; order_code: string } | null;

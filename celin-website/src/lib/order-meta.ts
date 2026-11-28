@@ -1,3 +1,5 @@
+import { offPct } from "@/lib/pricing";
+
 /** Client-safe order statuses and their labels (the four steps the client asked for, plus «لغو شد»). */
 
 export const ORDER_STEPS = ["pending", "packing", "ready", "shipped"] as const;
@@ -97,6 +99,43 @@ export interface OrderPricing {
   /** the step the pieces reached */
   pct?: number;
   pieces?: number;
+  /** round six: the special-day discount that applied (percent off every piece after the step, and its title) */
+  sale?: { pct: number; fa: string; en: string };
+  /** round six, with a sale: the lines at the step, before the sale */
+  stepped?: number;
+}
+
+export interface OrderDiscounts {
+  /** the lines at the price the member saw (the list price) */
+  list: number;
+  /** «تخفیف تعداد»: list − the lines at the step */
+  step: number;
+  /** the step in percent off the list price (0: not known — orders from before round five, or no step) */
+  stepOff: number;
+  /** every piece of the order */
+  pieces: number;
+  /** the special-day discount: the lines at the step − what was charged */
+  sale: { amount: number; pct: number; fa: string; en: string } | null;
+}
+
+/**
+ * The discounts an order was placed with, from what it stored (never today's settings): the list total, the
+ * quantity step and the special-day discount, in invoice order. Orders from before round six have no `stepped`,
+ * so their whole difference is the step, as it was.
+ */
+export function orderDiscounts(o: Pick<OrderDetail, "subtotal" | "list_subtotal" | "items_count" | "pricing">): OrderDiscounts {
+  const p = o.pricing ?? {};
+  const sale = p.sale && typeof p.sale === "object" && Number(p.sale.pct) > 0 ? p.sale : null;
+  const stepped = sale && typeof p.stepped === "number" && p.stepped >= o.subtotal ? p.stepped : o.subtotal;
+  const list = Math.max(o.list_subtotal, stepped);
+  const stepOff = offPct(Number(p.list), Number(p.pct));
+  return {
+    list,
+    step: list - stepped,
+    stepOff: list > stepped ? stepOff : 0,
+    pieces: Number(p.pieces) || o.items_count,
+    sale: sale && stepped > o.subtotal ? { amount: stepped - o.subtotal, pct: Number(sale.pct), fa: String(sale.fa ?? ""), en: String(sale.en ?? "") } : null,
+  };
 }
 
 export interface OrderDetail extends Order {

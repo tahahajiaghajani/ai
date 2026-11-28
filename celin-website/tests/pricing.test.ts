@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { atPct, cleanListPct, cleanSteps, DEFAULT_STEPS, invoice, listPrice, nextStep, pctFor, pricingArg, pricingFor } from "@/lib/pricing";
+import { formatPct } from "@/lib/format";
+import { atPct, cleanListPct, cleanSalePct, cleanSteps, DEFAULT_STEPS, invoice, ladder, listPrice, nextStep, offPct, pctFor, pricingArg, pricingFor, stepReached, unitAt, type SaleRule } from "@/lib/pricing";
 
 const member = pricingFor("member", { memberPct: 200, steps: DEFAULT_STEPS });
 const pro = pricingFor("pro", { memberPct: 200, steps: DEFAULT_STEPS });
@@ -116,5 +117,89 @@ describe("settings", () => {
   it("the SQL argument carries the level, the list percentage and the steps as pairs", () => {
     expect(pricingArg(member)).toEqual({ level: "member", list: 200, steps: [[6, 150], [11, 130], [16, 110], [24, 100]] });
     expect(pricingArg(pro)).toEqual({ level: "pro", list: 100, steps: [] });
+  });
+});
+
+const yalda: SaleRule = { pct: 10, title_fa: "جشن یلدا", title_en: "Yalda", until: "" };
+
+describe("the quantity discount in percent off the list price", () => {
+  it("floors, so the site never promises more than the invoice gives", () => {
+    expect([150, 130, 110, 100].map((p) => offPct(200, p))).toEqual([25, 35, 45, 50]);
+    expect(offPct(200, 200)).toBe(0);
+    expect(offPct(300, 200)).toBe(33);
+    expect(offPct(Number.NaN, 100)).toBe(0);
+    expect(offPct(200, Number.NaN)).toBe(0);
+    expect(formatPct(35, "fa")).toBe("۳۵٪");
+    expect(formatPct(35, "en")).toBe("35%");
+  });
+
+  it("lays the ladder out from one piece up, from the settings", () => {
+    expect(ladder(member)).toEqual([
+      { from: 1, to: 5, pct: 200, off: 0 },
+      { from: 6, to: 10, pct: 150, off: 25 },
+      { from: 11, to: 15, pct: 130, off: 35 },
+      { from: 16, to: 23, pct: 110, off: 45 },
+      { from: 24, to: null, pct: 100, off: 50 },
+    ]);
+    expect(ladder(pricingFor("member", { memberPct: 250, steps: [] }))).toEqual([{ from: 1, to: null, pct: 250, off: 0 }]);
+  });
+
+  it("knows when a change of pieces reaches a step (and only then)", () => {
+    expect(stepReached(5, 6, member)).toEqual({ pct: 150, off: 25 });
+    expect(stepReached(6, 7, member)).toBeNull();
+    expect(stepReached(0, 11, member)).toEqual({ pct: 130, off: 35 });
+    expect(stepReached(12, 3, member)).toBeNull();
+    expect(stepReached(0, 50, pro)).toBeNull();
+  });
+
+  it("the owner's case: one each of 11 different pieces is an 11-piece order, 35% off the whole invoice", () => {
+    const lines = Array.from({ length: 11 }, (_, i) => ({ price: 100_000 + i * 15_000, qty: 1 }));
+    const bill = invoice(lines, member);
+    expect(bill).toMatchObject({ pieces: 11, pct: 130, off: 35, sale: 0, saleDiscount: 0 });
+    expect(bill.list - bill.total).toBe(bill.stepDiscount);
+    expect(bill.total).toBe(lines.reduce((n, l) => n + atPct(l.price, 130), 0));
+  });
+});
+
+describe("the special-day discount", () => {
+  it("rounds each piece once, exactly like SQL round(price × pct × (100 − sale) / 10000)", () => {
+    expect(unitAt(1_234_567, 130, 0)).toBe(atPct(1_234_567, 130));
+    // 10 × 110 × 50 / 10000 = 5.5 → 6 (half away from zero)
+    expect(unitAt(10, 110, 50)).toBe(6);
+    // 1,111,115 × 110 × 90 / 10000 = 1,100,003.85 → 1,100,004
+    expect(unitAt(1_111_115, 110, 10)).toBe(1_100_004);
+    // the largest price the admin can enter at the largest list percentage: beyond 2^53 in the middle, exact in BigInt
+    expect(unitAt(1e13, 1000, 10)).toBe(9e13);
+    expect(unitAt(9_999_999_999_999, 999, 1)).toBe(Number((9_999_999_999_999n * 999n * 99n + 5000n) / 10000n));
+  });
+
+  it("comes off every piece after the step, as its own invoice line", () => {
+    const withSale = pricingFor("member", { memberPct: 200, steps: DEFAULT_STEPS }, yalda);
+    const bill = invoice(
+      [
+        { price: 1_000_000, qty: 4 },
+        { price: 700_000, qty: 3 },
+      ],
+      withSale,
+    );
+    // 7 pieces → 150%, then 10% off
+    expect(bill.list).toBe(2_000_000 * 4 + 1_400_000 * 3);
+    expect(bill.stepped).toBe(1_500_000 * 4 + 1_050_000 * 3);
+    expect(bill.total).toBe(1_350_000 * 4 + 945_000 * 3);
+    expect(bill.stepDiscount).toBe(bill.list - bill.stepped);
+    expect(bill.saleDiscount).toBe(bill.stepped - bill.total);
+    expect(bill).toMatchObject({ pct: 150, off: 25, sale: 10 });
+  });
+
+  it("Pro accounts pay the admin's price less the sale when the admin includes them", () => {
+    const bill = invoice([{ price: 1_234_567, qty: 3 }], pricingFor("pro", { memberPct: 200, steps: DEFAULT_STEPS }, yalda));
+    expect(bill).toMatchObject({ list: 1_234_567 * 3, stepped: 1_234_567 * 3, stepDiscount: 0, total: unitAt(1_234_567, 100, 10) * 3 });
+  });
+
+  it("accepts only 1–90 and sends the sale to SQL only while it applies", () => {
+    expect([0, 1, 90, 91, -5, "12", "x"].map(cleanSalePct)).toEqual([0, 1, 90, 0, 0, 12, 0]);
+    expect(pricingFor("member", { memberPct: 200, steps: [] }, { ...yalda, pct: 95 }).sale).toBeNull();
+    expect(pricingArg(pricingFor("member", { memberPct: 200, steps: [] }, yalda))).toEqual({ level: "member", list: 200, steps: [], sale: { pct: 10, fa: "جشن یلدا", en: "Yalda" } });
+    expect(pricingArg(member)).not.toHaveProperty("sale");
   });
 });

@@ -22,6 +22,35 @@ export interface AnnouncementSettings {
   link: string;
 }
 
+/** The bar colours (src/lib/sale.ts TONE_CLASS: brand grounds whose text reaches at least 7:1), or the admin's own. */
+export const SALE_TONES = ["pomegranate", "night", "cocoa", "paraiba", "copper", "champagne", "custom"] as const;
+export type SaleTone = (typeof SALE_TONES)[number];
+
+/**
+ * «نوار تخفیف روزهای خاص»: a store-wide percentage off every piece (after the quantity step) while it runs, shown
+ * in a coloured bar that takes the announcement's place. The server's clock decides the price (src/lib/sale.ts).
+ */
+export interface SaleSettings {
+  enabled: boolean;
+  /** percent off every piece after the quantity step, 1–90 */
+  pct: number;
+  /** the bar's title and short description (empty title: the site's label «تخفیف روزهای خاص») */
+  title_fa: string;
+  title_en: string;
+  text_fa: string;
+  text_en: string;
+  tone: SaleTone;
+  /** "#rrggbb", only with tone "custom" */
+  color: string;
+  /** ISO instants of whole Tehran days: from the start of the first day, until the start of the day after the last ("" = open) */
+  from: string;
+  until: string;
+  /** Pro accounts get the discount too */
+  pro: boolean;
+  /** "/…" inside the site, "https://…", or "" */
+  link: string;
+}
+
 export interface ShopSettings {
   /** smallest order total in Toman (0 = none) */
   minOrder: number;
@@ -89,6 +118,7 @@ export interface SeoSettings {
 export interface Settings {
   contact: ContactSettings;
   announcement: AnnouncementSettings;
+  sale: SaleSettings;
   shop: ShopSettings;
   pro: ProSettings;
   notify: NotifySettings;
@@ -115,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
     mapUrl: "",
   },
   announcement: { enabled: true, text_fa: "سلین، ۲۰ سال درخشش — به دنیای آنلاین سلین خوش آمدید", text_en: "CELIN, twenty years of brilliance — welcome to CELIN online", link: "/maison" },
+  sale: { enabled: false, pct: 10, title_fa: "", title_en: "", text_fa: "", text_en: "", tone: "pomegranate", color: "", from: "", until: "", pro: true, link: "/shop" },
   shop: {
     minOrder: 0,
     stockDisplay: "exact",
