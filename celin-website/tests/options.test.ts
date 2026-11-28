@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeDb, FakeJar } from "./stubs/fake-db";
 import { LEATHERS, METALS, STONES, type Product, type Variant } from "@/lib/catalog-types";
@@ -515,6 +517,19 @@ describe("the admin's colour lists", async () => {
       ["طلایی (آبکاری طلا) · نگین سفید", "Gold-plated · White stones"],
       ["نقره‌ای (رودیوم) · نگین سفید", "Silver-tone · White stones"],
     ]);
+  });
+});
+
+describe("the colour lists' form", async () => {
+  const { OptionPaletteForm } = await import("@/components/admin/option-palette");
+  const keys = () => [...renderToStaticMarkup(createElement(OptionPaletteForm, { initial: P, usage: {} })).matchAll(/data-colour="(\d+)"/g)].map((m) => Number(m[1]));
+
+  it("keys its rows the same on every render, so the server's page and the browser's agree (no hydration mismatch)", () => {
+    const first = keys();
+    const n = OPTION_AXES.reduce((t, a) => t + P[a].length, 0);
+    expect(first).toEqual(Array.from({ length: n }, (_, i) => i + 1));
+    // a second visit to the page (the same server process) renders the same keys
+    expect(keys()).toEqual(first);
   });
 });
 

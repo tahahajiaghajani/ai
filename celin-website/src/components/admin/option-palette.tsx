@@ -26,7 +26,9 @@ const FACET_LABEL: Record<OptionAxis, { values: readonly string[]; label: Record
   leather: { values: LEATHERS, label: LEATHER_LABEL },
 };
 
-let K = 0;
+// row keys: the stored colours count from 1 across the three lists (the same on the server and in the browser, so the
+// page hydrates as rendered); colours added in the browser count from here
+let K = 100_000;
 const nk = () => ++K;
 
 const move = <T,>(xs: T[], from: number, to: number): T[] => {
@@ -48,7 +50,10 @@ function Cell({ label, children, className = "" }: { label: string; children: Re
 }
 
 export function OptionPaletteForm({ initial, usage }: { initial: OptionPalette; usage: Record<string, number> }) {
-  const [rows, setRows] = useState<Record<OptionAxis, Row[]>>(() => Object.fromEntries(OPTION_AXES.map((a) => [a, initial[a].map((v) => ({ ...v, k: nk() }))])) as Record<OptionAxis, Row[]>);
+  const [rows, setRows] = useState<Record<OptionAxis, Row[]>>(() => {
+    let k = 0;
+    return Object.fromEntries(OPTION_AXES.map((a) => [a, initial[a].map((v) => ({ ...v, k: ++k }))])) as Record<OptionAxis, Row[]>;
+  });
   const save = useAction();
   const reset = useAction();
   const setAxis = (axis: OptionAxis, fn: (xs: Row[]) => Row[]) => setRows((r) => ({ ...r, [axis]: fn(r[axis]) }));
