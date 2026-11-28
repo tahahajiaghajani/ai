@@ -301,6 +301,27 @@ async function hasRows(q: Queryable, t: TableInfo, orgId: string): Promise<boole
   return !!(await q.one(`select 1 from ${ident(t.name)} where org_id = $1 limit 1`, [orgId]));
 }
 
+/**
+ * The row aliased `x` keeps its domain in `col`, a unit that goes with the pack and has no kept domain above it (the
+ * pack's own bank, a top-level unit the owner marked «دامنهٔ جداگانه» to try separation on the demo data), while the
+ * organisation separates domains. Its domain gone, the row would be readable in every domain — a NULL domain is
+ * «global» (access/predicate.ts `domain`) — so, like a record in a workspace that goes with the pack, it is recorded on
+ * demo data and goes with it. One under a kept domain moves up to it in the anchors phase (clean.ts `planNames`
+ * `domainOf`, the same walk up); without separation a domain widens nothing and the anchors phase clears it.
+ */
+const orphanDomain = (col: string) => {
+  const d = `x.${ident(col)}`;
+  return `(${d} is not null and ${isDemo(d)}
+    and exists (select 1 from sm_orgs o where o.id = $1 and (o.settings -> 'access' ->> 'domain_separation') = 'true')
+    and not exists (
+      with recursive up(at, n) as (
+        select u.parent_id, 1 from sm_org_units u where u.id = ${d} and u.org_id = $1
+        union all
+        select p.parent_id, up.n + 1 from up join sm_org_units p on p.id = up.at and p.org_id = $1 where up.n < 60
+      )
+      select 1 from up join sm_org_units k on k.id = up.at where coalesce(k.is_domain, false) and not ${isDemo("k.id")}))`;
+};
+
 /** Does json column `col` of the row aliased `x` name a demo row of the organisation ($1) anywhere? */
 const jsonNamesDemo = (col: string) =>
   `(x.${ident(col)} is not null and exists (select 1 from regexp_matches(x.${ident(col)}::text, ${lit(`(${UUID_RE})`)}, 'g') m where ${isDemo("m[1]::uuid")}))`;
@@ -360,6 +381,9 @@ export function derivedConds(t: TableInfo, since: string | null = null): string[
   }
   // a record in a workspace that went with the pack (moving it out would make it public)
   add(names(t, "workspace_id"));
+  // … or, while domains are separated, in a domain that goes with the pack with no kept domain above (clearing it
+  // would make it readable in every domain)
+  if (t.cols.get("domain_id")?.type === "uuid") add(orphanDomain("domain_id"));
   // a record a module's schedule generated from a demo definition (GENERATED_FROM) by itself (no person made it, no real
   // person changed it) — e.g. a demo maintenance plan's next visit; one a real person made or changed stays
   if (t.def.numbered && t.cols.has("created_by") && t.cols.has("updated_by")) {
@@ -442,11 +466,22 @@ export interface RefReport {
 }
 
 /** «ثبت‌شده روی دادهٔ نمایشی»: real rows of a table deleted with the pack, with a few of their names. */
+/**
+ * A row a report names, by reference: its words are read when the report is shown, under its viewer's access
+ * (samples.ts `sampleTexts`) — the purge plans as the system, and a report may not show anyone what they could not read.
+ */
+export interface SampleRef {
+  table: string;
+  id: string;
+  /** its number, when it has one: what a viewer who may not read the row sees of it */
+  number?: string;
+}
+
 export interface DeletedBucket {
   table: string;
   label: string;
   rows: number;
-  samples: string[];
+  samples: SampleRef[];
 }
 
 /** «تعریف‌های پاک‌سازی‌شده»: a definition built on top of the pack, kept and cleaned (or deactivated, or retired). */
@@ -454,7 +489,8 @@ export interface CleanedDefinition {
   table: string;
   label: string;
   id: string;
-  name: string;
+  /** its number, when it has one (the report keeps no words: its name is read when it is shown, under the viewer's access) */
+  number?: string;
   /** what was taken out (Persian) */
   what: string;
   deactivated: boolean;
@@ -468,7 +504,7 @@ export interface ReroutedBucket {
   rows: number;
   /** of which routing (assignee, group, owner…) was cleared, so the engine's rules routed them again */
   routed: number;
-  samples: string[];
+  samples: SampleRef[];
 }
 
 export interface PurgeReport {

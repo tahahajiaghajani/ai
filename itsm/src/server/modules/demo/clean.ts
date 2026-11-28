@@ -39,7 +39,7 @@ import {
 } from "./refs";
 import { failReason, inSavepoint, type CleanedDefinition, type ReroutedBucket, type Skipped, type TableInfo } from "./purge";
 import { isPurgedSql } from "./ledger";
-import { rowWords } from "./samples";
+import { refOf, rowWords } from "./samples";
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -159,8 +159,11 @@ export async function effectiveDefs(q: Queryable, orgId: string, info: TableInfo
 const hasField = (def: TableDef, name: string) => def.fields.some((f) => f.name === name && !f.base);
 const isJsonCol = (t: TableInfo, name: string) => t.cols.get(name)?.type === "jsonb";
 
-/** The display of a row for the report: its number and display in words, never an id (./samples.ts). */
-const labelOf = (q: Queryable, def: TableDef, row: Record<string, unknown>): Promise<string> => rowWords(q, def, row);
+/**
+ * A row as the report keeps it: by reference (its number when it has one), never its words — they are read when the
+ * report is shown, under its viewer's access (./samples.ts `sampleTexts`).
+ */
+const labelOf = (def: TableDef, row: Record<string, unknown>) => refOf(def, row);
 
 /** A soft «since» bound: a row that names a demo row was written after the demo row existed (a week for clock skew). */
 const sinceCond = (t: TableInfo, since: string | null) => (since && t.cols.has("updated_at") ? ` and x.updated_at >= ${lit(since)}::timestamptz - interval '7 days'` : "");
@@ -189,13 +192,37 @@ async function writeRow(
   return "skipped";
 }
 
-/** The definition's audit line: what the purge took out of it, for its owner to review (it names only the real row). */
-async function reviewLine(tx: Tx, orgId: string, c: CleanedDefinition): Promise<void> {
+/**
+ * The definition's audit line: what the purge took out of it, for its owner to review (it names only the real row, by
+ * `name`: its words, read as the step writes the line — the report keeps none).
+ */
+async function reviewLine(tx: Tx, orgId: string, c: CleanedDefinition & { name: string }): Promise<void> {
   const verb = c.retired ? "بازنشسته شد" : c.deactivated ? "غیرفعال شد" : "پاک‌سازی شد";
   const summary = `پس از حذف داده‌های نمایشی نیاز به بازبینی دارد: ${c.label} «${c.name}» ${verb}${c.what ? ` — ${c.what}` : ""}`.slice(0, 500);
   await tx.query(
     `insert into sm_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin, actor_kind) values ($1, $2, null, 'demo_purge_review', $3, $4, $5, $6::jsonb, null, 'system')`,
     [uuidv7(), orgId, c.table, c.id, summary, JSON.stringify({ deactivated: c.deactivated, retired: !!c.retired })],
+  );
+}
+
+/**
+ * The review line of a purge an earlier version (1.1.4) left past its remove phase: the names of what went (positions,
+ * library and table fields) were never read, so what names them by name — workflows (their steps' positions and
+ * fields), forms, positions' rules — could not be checked; the line names the live ones for the owner to look at.
+ */
+export async function namesLostLine(tx: Tx, orgId: string): Promise<void> {
+  const some = async (table: string, label: string) => {
+    const r = await tx.query<{ name: string; n: number }>(
+      `select name, count(*) over ()::int as n from ${ident(table)} x where x.org_id = $1 and x.deleted_at is null and not ${isDemo("x.id")} order by x.updated_at desc nulls last limit 10`,
+      [orgId],
+    );
+    return r.length ? `${label} (${r[0].n}): «${r.map((x) => x.name).join("»، «")}»${r[0].n > r.length ? "، …" : ""}` : null;
+  };
+  const what = [await some("sm_processes", "گردش‌کارها"), await some("sm_forms", "فرم‌ها"), await some("sm_positions", "نقش‌های سازمانی")].filter(Boolean).join("؛ ");
+  const summary = `پس از حذف داده‌های نمایشی نیاز به بازبینی دارد: حذفی که نسخهٔ پیشین آغاز کرده بود پس از برداشتن ردیف‌ها ادامه یافت و ارجاع‌های با نام به نقش‌های سازمانی و فیلدهای حذف‌شده بررسی نشد${what ? ` — ${what}` : ""}`.slice(0, 1000);
+  await tx.query(
+    `insert into sm_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin, actor_kind) values ($1, $2, null, 'demo_purge_review', 'demo', null, $3, $4::jsonb, null, 'system')`,
+    [uuidv7(), orgId, summary, JSON.stringify({ names_lost: true })],
   );
 }
 
@@ -362,7 +389,7 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
           if (!Object.keys(patch).length) continue;
           const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
           bucket.rows++;
-          if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
+          if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
           st.rerouted.set(def.key, bucket);
           if (!st.dry) await writeRow(tx, sys, t, def, String(row.id), patch, patch, st.skipped, "clear");
           continue;
@@ -371,16 +398,18 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
         if (def.key === "flow" && "graph" in patch && hasField(def, "dirty") && row.version_id) patch.dirty = true;
         const deactivate = dead && hasField(def, "active") && row.active !== false;
         if (deactivate) patch.active = false;
+        const { number } = labelOf(def, row);
         const entry: CleanedDefinition = {
-          table: def.key, label: def.label, id: String(row.id), name: await labelOf(tx, def, row), what: [...new Set(notes)].join("؛ ").slice(0, 400),
+          table: def.key, label: def.label, id: String(row.id), ...(number ? { number } : {}), what: [...new Set(notes)].join("؛ ").slice(0, 400),
           deactivated: deactivate || (dead && !hasField(def, "active")),
         };
         st.cleaned.push(entry);
         if (st.dry) continue;
+        const name = await rowWords(tx, def, row);
         const how = await writeRow(tx, sys, t, def, String(row.id), patch, patch, st.skipped, "clear");
         if (how === "skipped") continue;
         if (dead && !hasField(def, "active")) await retireRow(tx, sys, t, def, String(row.id), st.skipped);
-        await reviewLine(tx, orgId, entry);
+        await reviewLine(tx, orgId, { ...entry, name });
       }
       if (rows.length < CHUNK) break;
     }
@@ -427,7 +456,7 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
     const retire = stuck.length > 0;
     const steps = (xs: string[]) => `مرحله‌های «${xs.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)`;
     const entry: CleanedDefinition = {
-      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false, ...(retire ? { retired: true } : {}),
+      table: "process", label: "گردش‌کار", id: p.id, deactivated: false, ...(retire ? { retired: true } : {}),
       what: (retire
         ? `${steps(stuck)} و هیچ‌یک از مسئولانش هم نمانده است`
         : `${steps(waits)}؛ گردش‌کار منتشر می‌ماند: پرونده‌های تازه آن‌جا منتظر می‌مانند و مسئولان گردش‌کار باخبر می‌شوند تا کسی را برگزینند یا دارنده‌ای بیفزایند`
@@ -436,7 +465,7 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
     st.cleaned.push(entry);
     if (st.dry) continue;
     if (!retire) {
-      await reviewLine(tx, orgId, entry);
+      await reviewLine(tx, orgId, { ...entry, name: p.name });
       continue;
     }
     const r = await inSavepoint(tx, () => updateIn(tx, sys, "process", p.id, { status: "retired" }, { trusted: true, keepVersion: true }));
@@ -447,7 +476,7 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
         continue;
       }
     }
-    await reviewLine(tx, orgId, entry);
+    await reviewLine(tx, orgId, { ...entry, name: p.name });
   }
 }
 
@@ -575,7 +604,7 @@ async function waitingStep(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, de
       const bucket = st.rerouted.get("process_case") ?? { table: "process_case", label: def?.plural ?? "پرونده‌های گردش‌کار", rows: 0, routed: 0, samples: [] };
       bucket.rows++;
       bucket.routed++;
-      if (bucket.samples.length < 3 && def) bucket.samples.push(await labelOf(tx, def, c as unknown as Record<string, unknown>));
+      if (bucket.samples.length < 3 && def) bucket.samples.push(labelOf(def, c as unknown as Record<string, unknown>));
       st.rerouted.set("process_case", bucket);
       if (st.dry) continue;
       const r = await inSavepoint(tx, async () => {
@@ -679,7 +708,7 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
         const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
         bucket.rows++;
         if (Object.keys(patch).some((k) => routing.has(k))) bucket.routed++;
-        if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
+        if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
         st.rerouted.set(def.key, bucket);
         if (st.dry) continue;
         if (def.key === "approval" && replan.has(`${row.table_key}:${row.record_id}`)) continue;
@@ -821,7 +850,7 @@ export async function anchorStep(tx: Tx, sys: Ctx, orgId: string, info: TableInf
         if (!Object.keys(set).length) continue;
         const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
         bucket.rows++;
-        if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
+        if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
         st.rerouted.set(def.key, bucket);
         if (st.dry) continue;
         const keys = Object.keys(set);

@@ -24,12 +24,12 @@ import { installDemoLedger, reclaimLeftovers, recordPurged } from "./ledger";
 import {
   DERIVED, computedSince, demoFiles, expandDerived, expandStep, keepRealTrail, newExpandCursor, newRemoveCursor, registryCounts, removeAccounts, removeFiles, removeRows,
   removeStep, restoreComputed, restoreCounters, revertTouched, saveComputed, tablesInfo, unattributedReport,
-  type DeletedBucket, type ExpandCursor, type PurgeReport, type RefReport, type RemoveCursor, type ReroutedBucket, type Skipped, type TableInfo,
+  type CleanedDefinition, type DeletedBucket, type ExpandCursor, type PurgeReport, type RefReport, type RemoveCursor, type ReroutedBucket, type Skipped, type TableInfo,
 } from "./purge";
-import { anchorStep, clearStep, newTableCursor, noNames, planNames, rerouteStep, retireStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
+import { anchorStep, clearStep, namesLostLine, newTableCursor, noNames, planNames, rerouteStep, retireStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
 import { systemCtx } from "../../engine";
 import { TRAIL_TABLE_NAMES } from "./refs";
-import { sampleWords } from "./samples";
+import { refKey, sampleRefs, sampleText, sampleTexts } from "./samples";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
@@ -50,6 +50,8 @@ interface PackRow {
     gone?: GoneNames;
     /** the purge's job used its attempts (its worker stopped every time): why; it goes on from its phase `PURGE_RETRY_MS` later */
     stopped?: string;
+    /** a purge an earlier version left past its remove phase: the phase it goes on with after the reroute and anchors */
+    resume?: string | null;
   };
   counts: Record<string, number>;
   counters: Record<string, number>;
@@ -200,7 +202,9 @@ export async function startDemoLoad(ctx: Ctx, input: { size: DemoSize; force?: b
  * rolled back — what goes (rows per table, accounts), and the three buckets: real rows recorded on demo data that go
  * with it (per table, with a few names), definitions built on top of it that are cleaned, deactivated or retired (by
  * name), and kept records whose references are cleared and routed again. A purge already running answers what it found.
- * Bounded by a time budget (the web version's request limit): `partial` when it ran out before the end.
+ * Bounded by a time budget (the web version's request limit): `partial` when it ran out before the end. The names are
+ * read for the viewer, under their access (samples.ts `sampleTexts`): a row they may not read is named by its number
+ * alone, a definition by «(محدود)».
  */
 export interface PurgePreview {
   tables: Record<string, number>;
@@ -208,64 +212,97 @@ export interface PurgePreview {
   accounts: number;
   /** (before 1.1.5) references of real rows: kept for older consoles, now always empty */
   references: RefReport[];
-  deleted: DeletedBucket[];
-  cleaned: NonNullable<PurgeReport["cleaned"]>;
-  rerouted: ReroutedBucket[];
+  deleted: (Omit<DeletedBucket, "samples"> & { samples: string[] })[];
+  cleaned: (Omit<CleanedDefinition, "number"> & { name: string })[];
+  rerouted: (Omit<ReroutedBucket, "samples"> & { samples: string[] })[];
   skipped: Skipped[];
   partial?: boolean;
 }
 
+/** What a definition the viewer may not read is called in the preview. */
+const HIDDEN_NAME = "(محدود)";
+
+/** A purge report as `ctx`'s member reads it: its samples and names in words only where they may read the rows. */
+async function viewFor(ctx: Ctx, r: PurgeReport, partial = false): Promise<PurgePreview> {
+  const texts = await sampleTexts(ctx, [...(r.deleted ?? []).flatMap((d) => d.samples ?? []), ...(r.rerouted ?? []).flatMap((b) => b.samples ?? []), ...(r.cleaned ?? [])]);
+  const words = (xs: unknown[] | undefined) => (xs ?? []).map((x) => sampleText(x, texts)).filter((x): x is string => !!x);
+  return {
+    tables: r.tables, rows: r.rows, accounts: r.tables.sm_users ?? 0, references: [],
+    deleted: (r.deleted ?? []).map((d) => ({ ...d, samples: words(d.samples) })),
+    // (a name a report of an earlier build kept, read as the system, is replaced too)
+    cleaned: (r.cleaned ?? []).map(({ number, ...c }) => ({ ...c, name: texts.get(refKey(c)) ?? number ?? HIDDEN_NAME })),
+    rerouted: (r.rerouted ?? []).map((b) => ({ ...b, samples: words(b.samples) })),
+    skipped: r.skipped ?? [],
+    ...(partial ? { partial } : {}),
+  };
+}
+
 class DryRun extends Error {
-  constructor(readonly result: PurgePreview) {
+  constructor(readonly result: { report: PurgeReport; partial: boolean }) {
     super("demo purge preview");
   }
 }
 
-const PREVIEW_MS = 25_000;
+/**
+ * The longest the preview's dry run holds its transaction: the real rows it puts back stay locked until it rolls back,
+ * and on the standalone Windows app it holds PGlite's one connection. Every part of the plan stops at it (the report is
+ * then `partial`; the counts of what goes are always there) — below the web version's 10 s lock timeout, so a person
+ * who saves one of those rows meanwhile waits for it and never gets «db_locked».
+ */
+export const PREVIEW_MS = 6_000;
 
-export async function purgePreview(ctx: Ctx): Promise<PurgePreview> {
+export async function purgePreview(ctx: Ctx, opts: { budgetMs?: number } = {}): Promise<PurgePreview> {
   const orgId = ctx.org.id;
   const pack = await packOf(ctx.db, orgId);
-  const view = (r: PurgeReport, partial = false): PurgePreview => ({
-    tables: r.tables, rows: r.rows, accounts: r.tables.sm_users ?? 0, references: [], deleted: r.deleted ?? [], cleaned: r.cleaned ?? [], rerouted: r.rerouted ?? [], skipped: r.skipped ?? [], ...(partial ? { partial } : {}),
-  });
-  if (pack && (pack.state === "purging" || pack.state === "tombstoned") && pack.progress.report) return view(pack.progress.report);
+  if (pack && (pack.state === "purging" || pack.state === "tombstoned") && pack.progress.report) return viewFor(ctx, pack.progress.report);
   const info = await tablesInfo(ctx.db);
   // the system context first: inside the transaction nothing reads through ctx.db (PGlite has one connection)
   const sys = await systemCtx(ctx.cfg, orgId);
   const since = sinceOf(pack);
-  const until = Date.now() + PREVIEW_MS;
+  const until = Date.now() + (opts.budgetMs ?? PREVIEW_MS);
+  const late = () => Date.now() > until;
   try {
     // through `purgeDb`, as every purge transaction: the per-row access bumps of what the plan puts back or clears only
     // mark the transaction (its one bump would run at the commit, which a dry run never reaches)
     await inDemoScope(null, () =>
       purgeDb(ctx.db as Db, orgId).tx(async (tx) => {
         const report = emptyReport();
+        // the budget is spent: what was found so far, `partial` (the counts of what goes come first, always)
+        const stop = (): never => {
+          throw new DryRun({ report, partial: true });
+        };
+        report.tables = await registryCounts(tx, orgId);
+        report.rows = Object.values(report.tables).reduce((n, x) => n + x, 0);
         // the purge's plan from its first step: what an earlier purge left behind joins this pack (ledger.ts)
         await reclaimLeftovers(tx, orgId);
-        const made = pack?.progress.saved_at ? await computedSince(tx, orgId, info, pack.progress.computed ?? []) : 0;
+        const made = pack?.progress.saved_at && !late() ? await computedSince(tx, orgId, info, pack.progress.computed ?? []) : 0;
+        if (late()) stop();
         const reverted = await revertTouched(tx, orgId, info);
         report.restored = reverted.restored;
         report.left_real = reverted.left;
         const cur = newExpandCursor();
-        const complete = await expandStep(tx, orgId, info, cur, until, since);
+        const complete = !late() && (await expandStep(tx, orgId, info, cur, until, since));
         report.derived = made + cur.total;
+        if (late()) stop();
         report.kept_trail = await keepRealTrail(tx, orgId, info, true);
+        if (late()) stop();
         await planReport(tx, orgId, info, report);
+        if (late() || !complete) stop();
         const names = await planNames(tx, orgId);
         const st: StepState = { until, since, dry: true, cleaned: [], rerouted: new Map(), skipped: [] };
-        const cleared = complete && (await clearStep(tx, sys, orgId, info, names, newTableCursor(), st));
-        if (cleared) await retireStuck(tx, sys, orgId, names, st);
-        const rerouted = cleared && (await rerouteStep(tx, sys, orgId, info, names, newTableCursor(), st));
-        const anchored = rerouted && (await anchorStep(tx, sys, orgId, info, names, newTableCursor(), st));
+        const cleared = !late() && (await clearStep(tx, sys, orgId, info, names, newTableCursor(), st));
+        if (cleared && !late()) await retireStuck(tx, sys, orgId, names, st);
+        const rerouted = cleared && !late() && (await rerouteStep(tx, sys, orgId, info, names, newTableCursor(), st));
+        const anchored = rerouted && !late() && (await anchorStep(tx, sys, orgId, info, names, newTableCursor(), st));
         report.cleaned = st.cleaned;
         report.rerouted = [...st.rerouted.values()];
         report.skipped = st.skipped;
-        throw new DryRun(view(report, !anchored));
+        throw new DryRun({ report, partial: !anchored });
       }),
     );
   } catch (e) {
-    if (e instanceof DryRun) return e.result;
+    // the words are read after the dry run rolled back (the rows it names are as they are), under the viewer's access
+    if (e instanceof DryRun) return viewFor(ctx, e.result.report, e.result.partial);
     throw e;
   }
   throw new Error("unreachable");
@@ -299,8 +336,8 @@ async function planReport(q: Queryable, orgId: string, info: TableInfo[], report
       platform += d.n;
       continue;
     }
-    // words a person reads, never an id: a holder reads «… در «مدیر گروه»» (./samples.ts)
-    const samples = await sampleWords(q, def, `from ${JSON.stringify(d.tbl)} x join sm_demo_saved m on m.org_id = $1 and m.tbl = '${DERIVED}' and m.row_id = x.id where x.org_id = $1`, [orgId]);
+    // by reference: their words are read when the report is shown, under its viewer's access (./samples.ts)
+    const samples = await sampleRefs(q, def, `from ${JSON.stringify(d.tbl)} x join sm_demo_saved m on m.org_id = $1 and m.tbl = '${DERIVED}' and m.row_id = x.id where x.org_id = $1`, [orgId]);
     deleted.push({ table: def.key, label: def.plural, rows: d.n, samples });
   }
   if (platform) deleted.push({ table: "_platform", label: "سوابق و رویدادهای سامانه دربارهٔ دادهٔ نمایشی", rows: platform, samples: [] });
@@ -514,6 +551,21 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
       q.query(`update sm_demo_packs set progress = progress || $2::jsonb, updated_at = now() where org_id = $1`, [orgId, JSON.stringify({ purge: next, cursor: null, ...extra })]);
     const stay = (q: Queryable, cursor: PurgeCursor, extra: Record<string, unknown> = {}) =>
       q.query(`update sm_demo_packs set progress = progress || $2::jsonb, updated_at = now() where org_id = $1`, [orgId, JSON.stringify({ purge: phase, cursor, ...extra })]);
+    // A purge an earlier version started (1.1.4: expand, clear, remove, accounts, restore, finish — each one transaction)
+    // left no names of what goes: this version's expand phase reads them while the rows are still there.
+    if (!pack.progress.gone && phase !== "expand") {
+      await db.tx(async (tx) => {
+        // before its remove the rows are all there: their names now, and this version's cleaning of the definitions
+        // first (its clear phase had not run when 1.1.4 stopped at its remove)
+        if (phase === "clear" || phase === "remove") return setPhase(tx, "clear", { gone: await planNames(tx, orgId) });
+        // past its remove the names went with the rows: the kept records' references are cleared and their anchors
+        // derived again from what the registry still names (1.1.4 had neither phase), a review line says what could not
+        // be checked by name, and the purge goes on where it was
+        await namesLostLine(tx, orgId);
+        await setPhase(tx, "reroute", { gone: noNames(), resume: phase });
+      });
+      return { again: 0 };
+    }
     if (phase === "expand") {
       // a load chunk still running finishes its step first (it sees 'purging' at its next save and stops)
       if (await db.one(`select 1 from sm_jobs where org_id = $1 and kind = 'demo.load' and status = 'running' and locked_until > now() limit 1`, [orgId])) return { again: 2000 };
@@ -603,7 +655,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         const done = phase === "reroute" ? await rerouteStep(tx, sys!, orgId, info, names, cur, st) : await anchorStep(tx, sys!, orgId, info, names, cur, st);
         mergeRerouted(report, st.rerouted);
         report.skipped = st.skipped;
-        if (done) await setPhase(tx, phase === "reroute" ? "anchors" : "accounts", { report });
+        // after the anchors: the accounts — or, for a purge an earlier version left past its remove, where it was
+        if (done) await setPhase(tx, phase === "reroute" ? "anchors" : (pack.progress.resume ?? "accounts"), { report, ...(phase === "anchors" ? { resume: null } : {}) });
         else await stay(tx, { step: "tables", ...cur }, { report });
       });
       forgetCaches(orgId);
