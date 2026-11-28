@@ -476,6 +476,26 @@ a.wfu-card:focus-visible {
 .wfu-note-line {
   grid-column: 1 / -1;
 }
+/* the process form's columns follow its own width, not the window's (./model.ts FORM_COLUMNS): in the case page's side
+   panel (about 430 px on a wide screen) two fields side by side left a segmented choice no room — «دسترسی» was cut at
+   the panel's edge (1.1.5's click-through). One field to a row needs no column gaps: the 24 columns' 23 gaps of 16 px
+   alone are 368 px, wider than a phone's form, which they pushed out of its card */
+.wfu-form {
+  container: wfu-form / inline-size;
+}
+@container wfu-form (max-width: 859.98px) {
+  .wfu-form .rk-f {
+    grid-column: span max(12, var(--rk-span, 8));
+  }
+}
+@container wfu-form (max-width: 559.98px) {
+  .wfu-form .rk-grid {
+    column-gap: 0;
+  }
+  .wfu-form .rk-f {
+    grid-column: 1 / -1;
+  }
+}
 .wfu-actionbar {
   position: sticky;
   inset-block-end: 0;
