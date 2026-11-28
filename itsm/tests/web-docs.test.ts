@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXHAUSTED_BATCH, HEARTBEAT_MAX_MS, HEARTBEAT_MS, LOCK_MS } from "@server/jobs";
+import { MIGRATIONS } from "@server/db/migrations";
 
 const ROOT = join(__dirname, "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf8");
@@ -244,5 +245,14 @@ describe("the setup guide's Ignored Build Step", () => {
     const own = JSON.parse(read("vercel.json")) as { ignoreCommand: string };
     const root = JSON.parse(read("..", "vercel.json")) as { ignoreCommand: string };
     expect(blocks).toEqual([own.ignoreCommand, root.ignoreCommand]);
+  });
+});
+
+describe("the owner's first look at «سلامت سامانه» (SETUP_FA §۲)", () => {
+  // «ساختار پایگاه داده» says «به‌روز (N مرحله)» with N = the app's migrations (platform/health.ts): 1.1.5's
+  // 0105_demo_purge_sync made them ۲۹ and the guide still promised ۲۸, so a correct installation looked wrong
+  it("names as many schema steps as the app has migrations", () => {
+    expect(read("src", "server", "modules", "platform", "health.ts")).toContain("`به‌روز (${faDigits(MIGRATIONS.length)} مرحله)`");
+    expect(read("docs", "SETUP_FA.md")).toContain(`«ساختار پایگاه داده» «به‌روز (${fa(MIGRATIONS.length)} مرحله)»`);
   });
 });
