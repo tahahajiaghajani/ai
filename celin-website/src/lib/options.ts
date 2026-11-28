@@ -423,18 +423,20 @@ const compatible = (a: VariantOptions, b: VariantOptions) => OPTION_AXES.every((
 
 /**
  * The editor's rows for a grid of combinations: every combination gets its row — the one with the same colours, else
- * a stored row no combination holds any more whose colours agree with it (adding or dropping a whole axis keeps the
- * stored option, its id and stock: «طلایی» becomes «طلایی · نگین سفید»), else a new one from `make`. Rows of
- * combinations that left the grid stay as they are, so choosing a colour again brings them back unchanged.
+ * a stored row no combination holds any more whose stored colours (`orig`) agree with it (adding or dropping a whole
+ * axis keeps the stored option, its id and stock: «طلایی» becomes «طلایی · نگین سفید»), else a new one from `make`.
+ * Matching the stored colours, not the row's current ones, keeps a swapped colour from taking the stock: «نگین سفید»
+ * taken off and «نگین آبی» chosen is a new combination, whichever is clicked first, and the white one is deleted.
+ * Rows of combinations that left the grid stay as they are, so choosing a colour again brings them back unchanged.
  */
-export function syncCombos<T extends { id: string | null; options: VariantOptions }>(rows: T[], grid: VariantOptions[], make: (o: VariantOptions) => T): T[] {
+export function syncCombos<T extends { id: string | null; options: VariantOptions; orig?: VariantOptions }>(rows: T[], grid: VariantOptions[], make: (o: VariantOptions) => T): T[] {
   const keys = new Set(grid.map(optionsKey));
   const out = [...rows];
   const held = new Set(out.filter((r) => keys.has(optionsKey(r.options))));
   for (const o of grid) {
     const k = optionsKey(o);
     if (out.some((r) => optionsKey(r.options) === k)) continue;
-    const i = out.findIndex((r) => r.id && !held.has(r) && !keys.has(optionsKey(r.options)) && compatible(r.options, o));
+    const i = out.findIndex((r) => r.id && !held.has(r) && !keys.has(optionsKey(r.options)) && compatible(r.orig ?? r.options, o));
     if (i >= 0) {
       out[i] = { ...out[i], options: o };
       held.add(out[i]);
