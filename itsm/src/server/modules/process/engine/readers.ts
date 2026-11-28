@@ -14,7 +14,9 @@
 //   · only active members of the organisation;
 //   · at most NOTIFIED_MAX people read a case this way (the resolver's 500 candidates of a step with too many people,
 //     the notification service's 500 recipients): a notice beyond it reaches those who read the case already.
-// The journal names the people told and, a sentence each, those who were not and why (`Audience.untold`).
+// The journal names the people told and, a sentence each, those who were not and why (`Audience.untold`). A caller that
+// chooses whom to name by this rule (an escalation's «گزارش به», walking up past units whose holders may not be told)
+// asks `mayBeTold`.
 // Reads and writes through the caller's transaction, under the case's lock (PGlite has one connection).
 import { faDigits } from "@shared/format";
 import type { Ctx } from "../../../context";
@@ -98,10 +100,28 @@ async function namesOf(q: Queryable, users: readonly string[]): Promise<string> 
   return nameList([...shown.map((u) => names.get(u) ?? "—"), ...new Array<string>(users.length - shown.length).fill("")]);
 }
 
-/** The people named, by the demo boundary and membership (see the header): those who may be told, and the others. */
-async function sides(q: Queryable, kase: Pick<CaseFacts, "id" | "org_id">, named: readonly string[]) {
+/** The people a notice names, by the demo boundary and membership (`mayBeTold`). */
+export interface ToldSides {
+  /** the case is a row of the organisation's demo pack */
+  demoCase: boolean;
+  /** on the other side of the demo boundary: the pack's people on an organisation's own case, the others on a pack's */
+  otherSide: string[];
+  /** on the case's side, but not active members of the organisation */
+  inactive: string[];
+  /** who may be told (lower-case ids, in the order named) */
+  able: string[];
+}
+
+/**
+ * The people named, by the demo boundary and membership (see the header): those who may be told, and the others — the
+ * rule of every notice of the case (`audienceOf`), for a caller that chooses whom to name by it (../timers/timer.ts:
+ * the nearest holders of «گزارش به» who may be told). Read only.
+ */
+export async function mayBeTold(q: Queryable, kase: Pick<CaseFacts, "id" | "org_id">, users: readonly string[]): Promise<ToldSides> {
+  const named = ids(users);
+  if (!named.length) return { demoCase: false, otherSide: [], inactive: [], able: [] };
   const demoCase = await isDemoRow(q, kase.org_id, kase.id);
-  const pack = await demoPeople(q, kase.org_id, [...named]);
+  const pack = await demoPeople(q, kase.org_id, named);
   const otherSide = named.filter((u) => (demoCase ? !pack.has(u) : pack.has(u)));
   const side = named.filter((u) => (demoCase ? pack.has(u) : !pack.has(u)));
   const live = await activeMembers(q, kase.org_id, side);
@@ -134,7 +154,7 @@ export async function audienceOf(q: Queryable, kase: CaseFacts, users: readonly 
   const named = ids(users);
   const out: Audience = { told: [], names: [], untold: [], demoOnly: false, readers: [] };
   if (!named.length) return out;
-  const { demoCase, otherSide, inactive, able } = await sides(q, kase, named);
+  const { demoCase, otherSide, inactive, able } = await mayBeTold(q, kase, named);
   const already = await readersOf(q, kase);
   const need = able.filter((u) => !already.has(u));
   const room = Math.max(0, Math.min(NOTIFIED_MAX - ids(kase.notified).length, PARTICIPANTS_MAX - ids(kase.participants).length));
@@ -157,7 +177,7 @@ export async function audienceOf(q: Queryable, kase: CaseFacts, users: readonly 
 export async function untoldOf(q: Queryable, kase: Pick<CaseFacts, "id" | "org_id">, users: readonly string[]): Promise<{ untold: string[]; others: number }> {
   const named = ids(users);
   if (!named.length) return { untold: [], others: 0 };
-  const { demoCase, otherSide, inactive, able } = await sides(q, kase, named);
+  const { demoCase, otherSide, inactive, able } = await mayBeTold(q, kase, named);
   return { untold: await whyNot(q, demoCase, otherSide, inactive), others: able.length };
 }
 

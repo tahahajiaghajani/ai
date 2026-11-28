@@ -14,6 +14,9 @@
 //   · an approval passed by «از این مرحله بگذرد» says it counted as approved, and the designer warns of it; a «تکمیل
 //     فرم» with nothing to fill is warned of; the publish summary names what changed in a step's people;
 //   · a «گزارش به» escalation finds the holders by the organisation's day; «مسئولان گردش‌کار» left out are noted;
+//   · an escalation's «باخبر کردن» reaches someone who may be told: «گزارش به» goes up past a unit whose holders left or
+//     are the demo pack's people on the organisation's own case, saying so; nobody up the chain, or a manager who may
+//     not be told, and the process managers are told instead, with the reasons (engine-access-2);
 //   · whether I may start a process is what the start itself checks; a workflow step's task gets the workflows' own
 //     notice, not the generic «ارجاع به کارشناس».
 import { describe, it, expect, beforeAll } from "vitest";
@@ -413,6 +416,84 @@ describe("whom a step goes to", () => {
     const bells = await w.o.db.query<{ title: string; table_key: string }>(`select title, table_key from sm_notifications where org_id = $1 and user_id = $2`, [w.o.org, doer]);
     expect(bells).toEqual([{ title: "مرحله‌ای منتظر شماست: «مرحلهٔ با اعلان»", table_key: "process_case" }]);
     expect(await openAt(id)).toEqual([doer]);
+  });
+});
+
+describe("an escalation's «باخبر کردن» reaches someone who may be told (engine-access-2, 1.1.5)", () => {
+  /** One of the demo pack's people, as the loader adds them (tests/process-demo-boundary.test.ts). */
+  async function packPerson(name: string, unit: string): Promise<string> {
+    const id = await person(w, name, { unit });
+    await w.o.db.query(`update sm_users set prefs = coalesce(prefs, '{}'::jsonb) || jsonb_build_object('demo_org', $2::text) where id = $1`, [id, w.o.org]);
+    await w.o.db.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [w.o.org, id]);
+    return id;
+  }
+  const overdue = (to: "reports_to" | "manager") => ({ business: false, escalate: [{ after: { amount: 1, unit: "hour" }, action: "notify", to }] });
+  /** An organisation's own case whose step «a» (`step`) opened for `doer` two hours ago, its timers run now. */
+  async function escalated(step: Record<string, unknown>, label: string, doer: string): Promise<{ id: string; number: string }> {
+    const p = await publish(w, line(step, label), { managers: [X.mgr] });
+    const id = (await start(w, X.req, p, { values })).case!;
+    await w.k.drain();
+    expect(await openAt(id)).toEqual([doer]);
+    const at = Date.now();
+    await w.o.db.query(`update sm_process_tasks set opened_at = $2 where case_id = $1 and step_key = 'a'`, [id, iso(at - 2 * 3_600_000)]);
+    await w.sys.write((tx) => roundTimersIn(tx, w.sys, { cal: null }, id, "a", 1, at));
+    await w.k.drain();
+    return { id, number: (await kase(w, id)).number };
+  }
+  /** The «مهلت گذشت» bells of the case that reached `user`. */
+  const overdueBells = async (user: string, id: string) =>
+    (await w.o.db.query<{ title: string }>(`select title from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3 and title like 'مهلت گذشت%'`, [w.o.org, user, id])).map((b) => b.title);
+
+  it("«گزارش به» goes up past a unit whose holder is no longer an active member, to the region's head, and says so", async () => {
+    // «رئیس با دارندهٔ رفته»: held in the branch by the old head (membership off, the holder row kept) and in the region
+    await position("credit_officer", "کارشناس اعتبارات", { reports_to: POS.old_head });
+    const doer = await person(w, "کارشناس اعتبارات شعبه", { unit: U.branch });
+    await hold("credit_officer", doer, U.branch);
+    const c = await escalated({ ...anywhere("credit_officer"), ...overdue("reports_to") }, "بررسی اعتبار", doer);
+    expect(await journal(w, c.id)).toContain(
+      "مهلت گذشت؛ «بررسی اعتبار» به رئیس منطقهٔ شمال اطلاع داده شد. «رئیس با دارندهٔ رفته» در «شعبهٔ ونک» عضو فعال سازمان نیست؛ اعلان به «مدیریت شعب شمال» رسید.",
+    );
+    expect(await overdueBells(X.regionHead, c.id)).toEqual([`مهلت گذشت: «بررسی اعتبار» در پروندهٔ ${c.number}`]);
+    expect(await overdueBells(X.mgr, c.id)).toEqual([]);
+  });
+
+  it("… and past a unit whose holder is one of the demo pack's people, on the organisation's own case", async () => {
+    const packHead = await packPerson("رئیس شعبهٔ نمایشی", U.branch);
+    await position("pack_branch_head", "رئیس شعبهٔ ساخته بر دادهٔ نمایشی");
+    await hold("pack_branch_head", packHead, U.branch);
+    await hold("pack_branch_head", X.regionHead, U.region);
+    await position("teller", "تحویلدار", { reports_to: POS.pack_branch_head });
+    const doer = await person(w, "تحویلدار شعبه", { unit: U.branch });
+    await hold("teller", doer, U.branch);
+    const c = await escalated({ ...anywhere("teller"), ...overdue("reports_to") }, "بررسی تحویلدار", doer);
+    expect(await journal(w, c.id)).toContain(
+      "مهلت گذشت؛ «بررسی تحویلدار» به رئیس منطقهٔ شمال اطلاع داده شد. «رئیس شعبهٔ ساخته بر دادهٔ نمایشی» در «شعبهٔ ونک» حساب نمایشی است؛ اعلان به «مدیریت شعب شمال» رسید.",
+    );
+    expect(await overdueBells(X.regionHead, c.id)).toEqual([`مهلت گذشت: «بررسی تحویلدار» در پروندهٔ ${c.number}`]);
+    expect(await overdueBells(packHead, c.id)).toEqual([]);
+  });
+
+  it("nobody up the chain may be told: the process managers instead, with the reasons", async () => {
+    const packRegion = await packPerson("رئیس منطقهٔ نمایشی", U.region);
+    await position("unreachable_head", "رئیس دور از دسترس");
+    await hold("unreachable_head", X.leaver, U.branch);
+    await hold("unreachable_head", packRegion, U.region);
+    await position("loan_clerk", "کارمند وام", { reports_to: POS.unreachable_head });
+    const doer = await person(w, "کارمند وام شعبه", { unit: U.branch });
+    await hold("loan_clerk", doer, U.branch);
+    const c = await escalated({ ...anywhere("loan_clerk"), ...overdue("reports_to") }, "بررسی وام", doer);
+    expect(await journal(w, c.id)).toContain(
+      "مهلت «بررسی وام» گذشت؛ «رئیس دور از دسترس» در «شعبهٔ ونک» عضو فعال سازمان نیست؛ «رئیس دور از دسترس» در «مدیریت شعب شمال» حساب نمایشی است؛ «رئیس دور از دسترس» در بالادست «شعبهٔ ونک» دارندهٔ دیگری ندارد؛ به مسئولان گردش‌کار (مسئول گردش‌کار) اطلاع داده شد",
+    );
+    expect(await overdueBells(X.mgr, c.id)).toEqual([`مهلت گذشت: «بررسی وام» در پروندهٔ ${c.number}`]);
+    expect([await overdueBells(X.leaver, c.id), await overdueBells(packRegion, c.id)]).toEqual([[], []]);
+  });
+
+  it("«مدیر انجام‌دهنده» who may not be told (no longer an active member): the process managers instead, with the reason", async () => {
+    const doer = await person(w, "کارشناس با مدیر رفته", { unit: U.branch, manager: X.leaver });
+    const c = await escalated({ ...users(doer), ...overdue("manager") }, "بررسی با مدیر رفته", doer);
+    expect(await journal(w, c.id)).toContain("مهلت «بررسی با مدیر رفته» گذشت؛ رئیس پیشین عضو فعال سازمان نیست؛ اعلان به او نرسید؛ به مسئولان گردش‌کار (مسئول گردش‌کار) اطلاع داده شد");
+    expect(await overdueBells(X.mgr, c.id)).toEqual([`مهلت گذشت: «بررسی با مدیر رفته» در پروندهٔ ${c.number}`]);
   });
 });
 
