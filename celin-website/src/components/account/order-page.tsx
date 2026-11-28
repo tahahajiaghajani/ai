@@ -7,6 +7,7 @@ import { formatDate, formatPct, formatPhone, formatPrice, num, type Lang } from 
 import { href, t } from "@/lib/i18n";
 import { requireMember, storeContact } from "@/lib/member";
 import { orderDiscounts, type CartLine } from "@/lib/order-meta";
+import { packsOf } from "@/lib/packs";
 import { getOrder } from "@/lib/orders";
 import { Picture } from "@/components/ui/picture";
 import { StoreContact } from "@/components/account/contact";
@@ -38,13 +39,14 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
   const c = accountCopy(lang).order;
   const [catalog, contact] = await Promise.all([getCatalog(), storeContact()]);
 
-  // «سفارش مجدد»: only lines whose piece (and option) still exist
+  // «سفارش مجدد»: only lines whose piece (and option) still exist and are still sold that way (single or that pack)
   const products = new Map(catalog.products.map((p) => [p.id, p]));
   const again: CartLine[] = order.items.flatMap((i) => {
     const p = i.product_id ? products.get(i.product_id) : undefined;
     if (!p) return [];
     if (i.variant_id ? !p.variants.some((v) => v.id === i.variant_id) : p.variants.length > 0) return [];
-    return [{ productId: p.id, variantId: i.variant_id, qty: i.qty }];
+    if (!packsOf(p.packs).includes(i.pack)) return [];
+    return [{ productId: p.id, variantId: i.variant_id, qty: Math.max(1, Math.floor(i.qty / i.pack)), pack: i.pack }];
   });
   const placed = sp.placed === "1";
   // what the order was placed with (its own stored rules, never today's settings)
@@ -144,6 +146,8 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
               {order.items.map((i) => {
                 const name = t(i, "name", lang);
                 const option = t(i, "variant", lang);
+                // a line of packs: «۳ بسته‌ی ۴ سایزی · ۱۲ عدد» (the quantity column counts pieces)
+                const packText = i.pack > 1 ? commonCopy(lang).pack.line(num(i.qty / i.pack, lang), num(i.pack, lang), num(i.qty, lang)) : "";
                 // the original price (struck through) over what each piece was charged at the order's quantity step
                 const list = i.list_price ?? i.unit_price;
                 const stepped = list > i.unit_price;
@@ -161,12 +165,12 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
                       <div className="flex items-start gap-4">
                         <Picture media={itemMedia(i.image)} lang={lang} ratio="4/5" sizes="80px" alt={name} className="w-16 shrink-0 sm:w-20" />
                         <div className="hidden min-w-0 sm:block">
-                          <ItemText name={name} option={option} sku={i.sku} slug={i.slug} lang={lang} />
+                          <ItemText name={name} option={option} packs={packText} sku={i.sku} slug={i.slug} lang={lang} />
                         </div>
                       </div>
                     </td>
                     <td className="col-span-2 sm:hidden">
-                      <ItemText name={name} option={option} sku={i.sku} slug={i.slug} lang={lang} />
+                      <ItemText name={name} option={option} packs={packText} sku={i.sku} slug={i.slug} lang={lang} />
                     </td>
                     <td className="self-end text-xs text-muted tabular-nums sm:table-cell sm:py-5 sm:align-top sm:text-sm sm:text-ink-2">
                       <span className="sm:hidden">
@@ -254,7 +258,7 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "suc
   );
 }
 
-function ItemText({ name, option, sku, slug, lang }: { name: string; option: string; sku: string; slug: string; lang: Lang }) {
+function ItemText({ name, option, packs, sku, slug, lang }: { name: string; option: string; packs: string; sku: string; slug: string; lang: Lang }) {
   return (
     <>
       {slug ? (
@@ -265,6 +269,7 @@ function ItemText({ name, option, sku, slug, lang }: { name: string; option: str
         <p className="text-sm leading-6 text-ink">{name}</p>
       )}
       {option && <p className="text-xs leading-5 text-ink-2">{option}</p>}
+      {packs && <p className="text-xs leading-5 text-ink-2 tabular-nums">{packs}</p>}
       {sku && (
         <p className="mt-0.5 font-label text-[11px] tracking-[0.06em] text-muted">
           <span className="ltr">{sku}</span>

@@ -1,11 +1,12 @@
 import "server-only";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { assertAdmin } from "@/lib/admin-auth";
-import { db, isMissingTable, requireDb, UserError } from "@/lib/db";
+import { db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
-import { loadMedia, PRODUCT_COLUMNS, VARIANT_COLUMNS } from "@/lib/catalog";
+import { loadMedia, PRODUCT_COLUMNS, PRODUCT_R6_COLUMNS, VARIANT_COLUMNS } from "@/lib/catalog";
 import { METALS, STONES, type Badge, type Metal, type ProductStatus, type Spec, type Stone } from "@/lib/catalog-types";
 import type { Media } from "@/lib/media";
+import { cleanPacks, packsOf, singleOnly } from "@/lib/packs";
 import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS } from "@/content/seed-catalog";
 import { SEED_MEDIA, type SeedKey } from "@/content/seed-media";
 
@@ -47,6 +48,8 @@ export interface AdminProduct {
   images: string[];
   price: number | null;
   stock: number;
+  /** how it is sold: 1 = single, 2–5 = packs of that many sizes (src/lib/packs.ts); never empty */
+  packs: number[];
   status: ProductStatus;
   featured: boolean;
   badge: Badge;
@@ -219,16 +222,19 @@ export async function getAdminProduct(id: string): Promise<{ product: AdminProdu
   await assertAdmin();
   const c = requireDb();
   if (!UUID.test(id)) return null;
-  const { data, error } = await c.from("celin_products").select(`${PRODUCT_COLUMNS}, updated_at`).eq("id", id).maybeSingle();
+  const read = (columns: string) => c.from("celin_products").select(`${columns}, updated_at`).eq("id", id).maybeSingle();
+  let { data, error } = await read(PRODUCT_R6_COLUMNS);
+  // before round six's database file has run: sold single, as every product was
+  if (error && isMissingColumn(error)) ({ data, error } = await read(PRODUCT_COLUMNS));
   if (error) throw new Error(error.message);
   if (!data) return null;
   const { data: vs, error: ve } = await c.from("celin_variants").select(VARIANT_COLUMNS).eq("product_id", id).order("sort");
   if (ve) throw new Error(ve.message);
-  const p = data as Omit<AdminProduct, "variants">;
+  const p = data as unknown as Omit<AdminProduct, "variants">;
   const variants = ((vs ?? []) as (AdminVariant & { product_id: string })[]).map(({ product_id: _, ...v }) => ({ ...v, price: v.price === null ? null : Number(v.price) }));
   const media = await loadMedia([...(p.images ?? []), ...variants.map((v) => v.image_id ?? "")]);
   return {
-    product: { ...p, price: p.price === null ? null : Number(p.price), specs: Array.isArray(p.specs) ? p.specs : [], images: p.images ?? [], variants },
+    product: { ...p, price: p.price === null ? null : Number(p.price), specs: Array.isArray(p.specs) ? p.specs : [], images: p.images ?? [], packs: packsOf(p.packs), variants },
     media: Object.fromEntries(media),
   };
 }
@@ -269,7 +275,11 @@ export function parseProduct(input: Record<string, unknown>) {
       sort: i,
     };
   });
+  // how it is sold: any of single and packs of 2–5 sizes, at least one (null: the caller did not send it — left as stored)
+  const packs = input.packs === undefined ? null : cleanPacks(input.packs);
+  if (packs && !packs.length) throw new UserError("دست‌کم یکی از «تک» یا بسته‌ها را برای «نوع فروش» انتخاب کنید.");
   return {
+    packs,
     row: {
       slug,
       sku: text(input.sku, 60),
@@ -301,19 +311,30 @@ export function parseProduct(input: Record<string, unknown>) {
 export async function saveProduct(id: string | null, input: Record<string, unknown>): Promise<string> {
   await assertAdmin();
   const c = requireDb();
-  const { row, variants, stockLoaded } = parseProduct(input);
+  const { row, packs, variants, stockLoaded } = parseProduct(input);
   let productId = id && UUID.test(id) ? id : null;
   const now = new Date().toISOString();
+  // with packs when the editor sent them; the database before round six has no such column — single needs none,
+  // anything else waits for that file (Admin → «اتصالات»)
+  const write = async <T>(go: (extra: { packs?: number[] }) => PromiseLike<{ data: T; error: { code?: string; message: string } | null }>) => {
+    const r = await go(packs ? { packs } : {});
+    if (!r.error || !packs || !isMissingColumn(r.error)) return r;
+    if (!singleOnly(packs)) throw new UserError("برای فروش بسته‌ای (۲ تا ۵ سایز) ابتدا فایل SQL تازه را در Supabase اجرا کنید؛ «اتصالات» را ببینید.");
+    return go({});
+  };
   if (productId) {
     const { stock, ...rest } = row;
-    const { error } = await c
-      .from("celin_products")
-      .update({ ...rest, ...(stockLoaded === null ? { stock } : {}), updated_at: now })
-      .eq("id", productId);
+    const pid = productId;
+    const { error } = await write((extra) =>
+      c
+        .from("celin_products")
+        .update({ ...rest, ...extra, ...(stockLoaded === null ? { stock } : {}), updated_at: now })
+        .eq("id", pid),
+    );
     if (error) throw dbError(error);
     if (stockLoaded !== null) await applyStock("celin_products", productId, stockLoaded, stock);
   } else {
-    const { data, error } = await c.from("celin_products").insert(row).select("id").single();
+    const { data, error } = await write((extra) => c.from("celin_products").insert({ ...row, ...extra }).select("id").single());
     if (error) throw dbError(error);
     productId = (data as { id: string }).id;
   }

@@ -57,7 +57,7 @@ export function OrderActions({ lang, code, cancellable, lines }: { lang: Lang; c
       setNote(c.reorderNone);
       return;
     }
-    for (const l of lines) cart.add(l.productId, l.variantId, l.qty);
+    for (const l of lines) cart.add(l.productId, l.variantId, l.qty, l.pack);
     router.push(href(lang, "/account/cart"));
   }
 

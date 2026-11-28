@@ -9,7 +9,8 @@ import type { Media } from "@/lib/media";
 import { num } from "@/lib/format";
 import { Button, Card, ConfirmButton, Dialog, Field, Input, MoneyInput, PageHeader, Select, Textarea, Toggle } from "@/components/admin/ui";
 import { toast, useAction } from "@/components/admin/toast";
-import { BADGE_LABEL, METAL_LABEL, SLUG_RE, slugify, STATUS_LABEL, STONE_LABEL } from "@/components/admin/catalog-labels";
+import { BADGE_LABEL, METAL_LABEL, PACK_LABEL, SLUG_RE, slugify, STATUS_LABEL, STONE_LABEL } from "@/components/admin/catalog-labels";
+import { PACKS, packTerms } from "@/lib/packs";
 import { CountInput } from "@/components/admin/count-input";
 import { ProductImages } from "@/components/admin/product-images";
 import { isHex, Swatch, SWATCH_PRESETS, swatchLabel } from "@/components/admin/swatch";
@@ -44,13 +45,15 @@ interface Form {
   sort: number;
   price: number | null;
   stock: number;
+  /** «نوع فروش»: 1 = single, 2–5 = packs of that many sizes */
+  packs: number[];
   status: ProductStatus;
   images: string[];
   specs: SpecRow[];
   variants: VariantRow[];
 }
 
-type Errors = Partial<Record<"name_fa" | "slug" | `variant${number}`, string>>;
+type Errors = Partial<Record<"name_fa" | "slug" | "packs" | `variant${number}`, string>>;
 
 // row keys: stored rows use their index (same on server and client), rows added in the browser count from here
 let K = 100_000;
@@ -75,6 +78,7 @@ function initial(p: AdminProduct | null): Form {
     sort: p?.sort ?? 0,
     price: p?.price ?? null,
     stock: p?.stock ?? 0,
+    packs: p?.packs?.length ? p.packs : [1],
     status: p?.status ?? "draft",
     images: p?.images ?? [],
     specs: (p?.specs ?? []).map((s, i) => ({ ...s, k: i + 1 })),
@@ -102,6 +106,7 @@ function payload(f: Form, id?: string) {
     sort: f.sort,
     price: f.price,
     stock: f.stock,
+    packs: f.packs,
     status: f.status,
     images: f.images,
     specs: f.specs.map(({ k: _, ...s }) => s),
@@ -193,6 +198,7 @@ export function ProductEditor({
     const slug = x.slug.trim().toLowerCase() || slugify(x.name_en);
     if (!slug) e.slug = "نشانی را بنویسید (یا نام انگلیسی را پر کنید)؛ مثلاً darya-ring.";
     else if (!SLUG_RE.test(slug)) e.slug = "فقط حروف کوچک انگلیسی، عدد و خط تیره؛ مثلاً darya-ring.";
+    if (!x.packs.length) e.packs = "دست‌کم یکی از «تک» یا بسته‌ها را برای «نوع فروش» انتخاب کنید.";
     x.variants.forEach((v, i) => {
       if (!v.name_fa.trim()) e[`variant${i}`] = `نام فارسی گزینه‌ی ${num(i + 1, "fa")} را بنویسید (مثلاً «طلایی»).`;
     });
@@ -325,7 +331,7 @@ export function ProductEditor({
 
       <div className="space-y-6">
         <InfoCard f={f} set={set} errors={errors} slugTouched={slugTouched} setSlugTouched={setSlugTouched} categories={categories} collections={collections} />
-        <PriceCard f={f} set={set} hasVariants={hasVariants} />
+        <PriceCard f={f} set={set} hasVariants={hasVariants} error={errors.packs} />
         <ProductImages images={f.images} media={media} setImages={setImages} onMedia={putMedia} alt={{ fa: f.name_fa, en: f.name_en }} />
         <SpecsCard specs={f.specs} setSpecs={(fn) => setF((x) => ({ ...x, specs: fn(x.specs) }))} />
         <VariantsCard variants={f.variants} setVariants={(fn) => setF((x) => ({ ...x, variants: fn(x.variants) }))} images={imageList} errors={errors} productPrice={f.price} />
@@ -476,7 +482,9 @@ function InfoCard({
 
 // ------------------------------------------------------------------ price & stock
 
-function PriceCard({ f, set, hasVariants }: { f: Form; set: <K extends keyof Form>(key: K, value: Form[K]) => void; hasVariants: boolean }) {
+function PriceCard({ f, set, hasVariants, error }: { f: Form; set: <K extends keyof Form>(key: K, value: Form[K]) => void; hasVariants: boolean; error?: string }) {
+  const toggle = (n: number, on: boolean) => set("packs", PACKS.filter((x) => (x === n ? on : f.packs.includes(x))));
+  const packed = f.packs.some((n) => n > 1);
   return (
     <Card title="قیمت و موجودی" sub="قیمت و موجودی فقط به اعضا نشان داده می‌شود.">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -492,11 +500,39 @@ function PriceCard({ f, set, hasVariants }: { f: Form; set: <K extends keyof For
             </div>
           </div>
         ) : (
-          <Field label="موجودی" hint={f.stock === 0 ? "صفر = ناموجود" : undefined}>
+          <Field label={packed ? "موجودی (عدد)" : "موجودی"} hint={f.stock === 0 ? "صفر = ناموجود" : undefined}>
             <CountInput value={f.stock} onChange={(v) => set("stock", Math.max(0, v))} name="stock" />
           </Field>
         )}
       </div>
+
+      {/* how it is sold: public terms (everyone sees them on the product page); prices and stock stay per piece */}
+      <fieldset className="mt-6 border-t border-line pt-5" aria-describedby="packs-help">
+        <legend className="sr-only">نوع فروش</legend>
+        <p className="mb-1.5 text-xs font-medium text-ink-2" aria-hidden>
+          نوع فروش
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {PACKS.map((n) => (
+            <label
+              key={n}
+              className="relative inline-flex h-10 min-w-18 cursor-pointer items-center justify-center gap-2 rounded-sm border border-line-strong bg-white px-3 text-sm text-ink-2 transition-colors hover:border-ink has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-bone has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-gold"
+            >
+              <input type="checkbox" className="peer sr-only" checked={f.packs.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
+              <Icon name="check" className="hidden size-3.5 peer-checked:block" />
+              {PACK_LABEL[n]}
+            </label>
+          ))}
+        </div>
+        {error ? (
+          <p className="mt-2 text-xs text-danger">{error}</p>
+        ) : (
+          <p className="mt-2 text-xs leading-5 text-ink">در سایت: {packTerms(f.packs, "fa")}</p>
+        )}
+        <p id="packs-help" className="mt-1 text-xs leading-5 text-muted">
+          بسته‌ی ۳ سایزی یعنی ۳ عدد از همین مدل (و همان گزینه) در ۳ سایز مختلف، به قیمت ۳ عدد؛ از موجودی هم ۳ عدد کم می‌شود. سایزها را فروشگاه می‌چیند، مگر خریدار در یادداشت سفارش سایز خاصی بخواهد. نوع فروش به همه نشان داده می‌شود.
+        </p>
+      </fieldset>
     </Card>
   );
 }

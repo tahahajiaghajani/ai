@@ -19,6 +19,9 @@ export const STONE_LABEL: Record<Exclude<Stone, "">, string> = {
 
 export const BADGE_LABEL: Record<Exclude<Badge, "">, string> = { new: "تازه", bestseller: "محبوب", limited: "تعداد محدود" };
 
+/** «نوع فروش» of a product (src/lib/packs.ts): single, or a pack of that many sizes — the owner's own words. */
+export const PACK_LABEL: Record<number, string> = { 1: "تک", 2: "۲ سایز", 3: "۳ سایز", 4: "۴ سایز", 5: "۵ سایز" };
+
 /**
  * Stock level of a product in the admin list: "out" when nothing is left (every option empty), "low" when the
  * product — or any of its options — has `low` or fewer left (Settings → سفارش → «آستانه‌ی رو به اتمام», the

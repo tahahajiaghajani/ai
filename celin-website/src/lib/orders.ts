@@ -3,21 +3,25 @@ import { db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { storageBase } from "@/lib/catalog";
 import { folderUrl } from "@/lib/media";
 import { linePieces } from "@/lib/basket";
+import { cleanPack, packCap } from "@/lib/packs";
 import { pricingArg, type Pricing } from "@/lib/pricing";
-import { ACCEPTED_STATUSES, MAX_LINES, MAX_QTY, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
+import { ACCEPTED_STATUSES, MAX_LINES, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
 
 export const ORDER_COLUMNS =
   "id, code, user_id, status, subtotal, shipping_fee, discount, total, items_count, customer, note, carrier, tracking_code, cancel_reason, status_changed_at, created_at, updated_at";
 const ITEM_COLUMNS = "id, order_id, product_id, variant_id, name_fa, name_en, variant_fa, variant_en, sku, slug, image, unit_price, qty, line_total";
 // round five's database file adds what the member saw (list prices, the price rules); older databases lack them
 const ITEM_LIST_COLUMNS = `${ITEM_COLUMNS}, list_price`;
+// round six's adds how each line was sold (packs); read in steps, so a missing round six never loses the list prices
+const ITEM_R6_COLUMNS = `${ITEM_LIST_COLUMNS}, pack`;
 const ORDER_LIST_COLUMNS = "list_subtotal, pricing";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Cleans what the browser sent: valid ids, whole quantities 1–99, duplicate lines merged, and sorted by
- * product and option — celin_place_order locks rows in line order, so two orders never wait on each other.
+ * Cleans what the browser sent: valid ids, whole quantities (packs) up to 99 pieces a line, the pack 1–5 (none: single,
+ * as every line before round six), duplicate lines of the same pack merged, and sorted by product and option —
+ * celin_place_order locks rows in line order, so two orders never wait on each other.
  */
 export function cleanLines(input: unknown): CartLine[] {
   if (!Array.isArray(input)) return [];
@@ -28,12 +32,13 @@ export function cleanLines(input: unknown): CartLine[] {
     const productId = typeof r.productId === "string" ? r.productId : "";
     const variantId = typeof r.variantId === "string" && r.variantId ? r.variantId : null;
     const qty = Math.floor(Number(r.qty));
+    const pack = cleanPack(r.pack ?? 1);
     if (!UUID.test(productId) || (variantId && !UUID.test(variantId)) || !Number.isFinite(qty) || qty < 1) continue;
-    const key = `${productId}:${variantId ?? ""}`;
+    const key = `${productId}:${variantId ?? ""}:${pack}`;
     const prev = merged.get(key);
-    merged.set(key, { productId, variantId, qty: Math.min(MAX_QTY, (prev?.qty ?? 0) + qty) });
+    merged.set(key, { productId, variantId, qty: Math.min(packCap(pack), (prev?.qty ?? 0) + qty), pack });
   }
-  const key = (l: CartLine) => `${l.productId.toLowerCase()}:${(l.variantId ?? "").toLowerCase()}`;
+  const key = (l: CartLine) => `${l.productId.toLowerCase()}:${(l.variantId ?? "").toLowerCase()}:${l.pack}`;
   return [...merged.values()].slice(0, MAX_LINES).sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
@@ -70,7 +75,8 @@ export async function placeOrder(
   const c = db();
   if (!c) return { ok: false, error: { reason: "unavailable" } };
   if (!lines.length) return { ok: false, error: { reason: "empty" } };
-  const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: linePieces(l) }));
+  // qty in pieces (a whole number of the line's packs) and the pack, which the database checks against the product
+  const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: linePieces(l), pack: cleanPack(l.pack) }));
   const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing), p_expect: Math.round(expect) });
   let { data, error } = await call();
   // a deadlock (40P01) rolls the whole order back: one more try is safe
@@ -120,6 +126,7 @@ function toItem(r: Record<string, unknown>): OrderItem {
     unit_price: Number(r.unit_price ?? 0),
     list_price: r.list_price === null || r.list_price === undefined ? null : Number(r.list_price),
     qty: Number(r.qty ?? 0),
+    pack: cleanPack(r.pack ?? 1),
     line_total: Number(r.line_total ?? 0),
   };
 }
@@ -196,8 +203,12 @@ export async function getOrder(code: string, userId?: string): Promise<OrderDeta
   }
   const order = toOrder(data as Record<string, unknown>);
   const lines = async () => {
-    const r = await c.from("celin_order_items").select(ITEM_LIST_COLUMNS).eq("order_id", order.id);
-    return r.error && isMissingColumn(r.error) ? c.from("celin_order_items").select(ITEM_COLUMNS).eq("order_id", order.id) : r;
+    // the newest columns first, one step back at a time while a database file has not run
+    for (const columns of [ITEM_R6_COLUMNS, ITEM_LIST_COLUMNS]) {
+      const r = await c.from("celin_order_items").select(columns).eq("order_id", order.id);
+      if (!r.error || !isMissingColumn(r.error)) return r;
+    }
+    return c.from("celin_order_items").select(ITEM_COLUMNS).eq("order_id", order.id);
   };
   const [items, events] = await Promise.all([lines(), c.from("celin_order_events").select("status, note, actor, created_at").eq("order_id", order.id).order("created_at")]);
   const raw = data as Record<string, unknown>;

@@ -77,6 +77,11 @@ export interface Product {
   specs: Spec[];
   images: Media[];
   variants: Variant[];
+  /**
+   * How it is sold (src/lib/packs.ts): ascending, never empty; [1] = single only. Public terms, not price or stock —
+   * a pack's price is worked out in the browser from the members' price book.
+   */
+  packs: number[];
   featured: boolean;
   badge: Badge;
   sort: number;

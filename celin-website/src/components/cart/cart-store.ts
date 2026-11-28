@@ -2,12 +2,15 @@
 
 import { useSyncExternalStore } from "react";
 import { basketPieces } from "@/lib/basket";
-import { MAX_LINES, MAX_QTY, type CartLine } from "@/lib/order-meta";
+import { MAX_LINES, type CartLine } from "@/lib/order-meta";
+import { cleanPack, packCap } from "@/lib/packs";
 
 /**
  * The order basket of a member, kept in this browser (localStorage) and synced across tabs. It holds
- * only ids and quantities; names and pictures come from the catalogue, prices from the members' price layer,
- * and the server reads every price again when the order is placed.
+ * only ids, quantities and packs; names and pictures come from the catalogue, prices from the members' price layer,
+ * and the server reads every price again when the order is placed. A line is one product, option and pack (a
+ * single and a 4-size pack of the same option are two lines); `qty` counts packs (src/lib/packs.ts). Lines saved
+ * before round six have no pack and read as single, so the key stays.
  */
 
 const KEY = "celin-cart-v1";
@@ -20,10 +23,15 @@ function read(): CartLine[] {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "[]") as unknown;
     if (!Array.isArray(raw)) return EMPTY;
-    return raw
-      .filter((l): l is CartLine => Boolean(l) && typeof l.productId === "string" && (l.variantId === null || typeof l.variantId === "string") && Number.isFinite(l.qty))
-      .map((l) => ({ productId: l.productId, variantId: l.variantId, qty: Math.max(1, Math.min(MAX_QTY, Math.floor(l.qty))) }))
-      .slice(0, MAX_LINES);
+    // one line per product, option and pack (a hand-edited or older entry merges into its twin)
+    const out = new Map<string, CartLine>();
+    for (const l of raw.filter((l): l is CartLine => Boolean(l) && typeof l.productId === "string" && (l.variantId === null || typeof l.variantId === "string") && Number.isFinite(l.qty))) {
+      const pack = cleanPack(l.pack ?? 1);
+      const k = `${l.productId}:${l.variantId ?? ""}:${pack}`;
+      const qty = Math.max(1, Math.min(packCap(pack), Math.floor(l.qty) + (out.get(k)?.qty ?? 0)));
+      out.set(k, { productId: l.productId, variantId: l.variantId, qty, pack });
+    }
+    return [...out.values()].slice(0, MAX_LINES);
   } catch {
     return EMPTY;
   }
@@ -50,7 +58,7 @@ function write(next: CartLine[]) {
   listeners.forEach((l) => l());
 }
 
-const same = (a: CartLine, productId: string, variantId: string | null) => a.productId === productId && a.variantId === variantId;
+const same = (a: CartLine, productId: string, variantId: string | null, pack: number) => a.productId === productId && a.variantId === variantId && a.pack === cleanPack(pack);
 
 const OWNER = "celin-cart-owner";
 
@@ -70,19 +78,21 @@ export const cart = {
       // storage blocked: nothing is kept between page views anyway
     }
   },
-  add(productId: string, variantId: string | null, qty = 1) {
+  /** `qty` packs of `pack` pieces (1 = single) */
+  add(productId: string, variantId: string | null, qty = 1, pack = 1) {
     ensure();
-    const cur = lines.find((l) => same(l, productId, variantId));
-    write(cur ? lines.map((l) => (l === cur ? { ...l, qty: Math.min(MAX_QTY, l.qty + qty) } : l)) : [...lines, { productId, variantId, qty: Math.min(MAX_QTY, Math.max(1, qty)) }]);
+    const p = cleanPack(pack);
+    const cur = lines.find((l) => same(l, productId, variantId, p));
+    write(cur ? lines.map((l) => (l === cur ? { ...l, qty: Math.min(packCap(p), l.qty + qty) } : l)) : [...lines, { productId, variantId, qty: Math.min(packCap(p), Math.max(1, qty)), pack: p }]);
   },
-  setQty(productId: string, variantId: string | null, qty: number) {
+  setQty(productId: string, variantId: string | null, qty: number, pack = 1) {
     ensure();
-    if (qty < 1) return cart.remove(productId, variantId);
-    write(lines.map((l) => (same(l, productId, variantId) ? { ...l, qty: Math.min(MAX_QTY, Math.floor(qty)) } : l)));
+    if (qty < 1) return cart.remove(productId, variantId, pack);
+    write(lines.map((l) => (same(l, productId, variantId, pack) ? { ...l, qty: Math.min(packCap(l.pack), Math.floor(qty)) } : l)));
   },
-  remove(productId: string, variantId: string | null) {
+  remove(productId: string, variantId: string | null, pack = 1) {
     ensure();
-    write(lines.filter((l) => !same(l, productId, variantId)));
+    write(lines.filter((l) => !same(l, productId, variantId, pack)));
   },
   clear() {
     ensure();
@@ -108,7 +118,7 @@ export function useCart(): CartLine[] {
   );
 }
 
-/** Every piece in the basket (src/lib/basket.ts): what the quantity step counts. */
+/** Every piece in the basket (src/lib/basket.ts; a pack counts its pieces): what the quantity step counts. */
 export function useCartCount(): number {
   return basketPieces(useCart());
 }

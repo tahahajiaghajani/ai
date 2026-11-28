@@ -54,6 +54,18 @@ export const common = {
       now: "قیمت با تعداد این سفارش:",
       nowSale: "قیمت با تخفیف:",
       atPieces: (n: string, off: string) => `${n} قطعه در سفارش · ${off} تخفیف روی کل سفارش`,
+      // a product sold in packs: the price above is one piece's, the pack's is n of them
+      perPiece: "هر عدد",
+      perPack: (n: string, p: string) => `بسته‌ی ${n} سایزی: ${p}`,
+    },
+    // a line of packs (src/lib/packs.ts): wherever it is listed — basket, orders, the admin and its notifications
+    pack: {
+      line: (packs: string, n: string, pieces: string) => `${packs} بسته‌ی ${n} سایزی · ${pieces} عدد`,
+      // how a piece is sold, in a few words (cards, the admin): «فقط بسته‌ی ۴ سایزی», «تک یا بسته‌ی ۳ سایزی»
+      single: "تک",
+      name: (n: string) => `بسته‌ی ${n} سایزی`,
+      only: (what: string) => `فقط ${what}`,
+      list: (head: string, last: string) => `${head} یا ${last}`,
     },
     // the quantity discount while choosing and in the basket (src/components/pro/step-note.tsx)
     steps: {
@@ -208,6 +220,15 @@ export const common = {
       now: "Price at this order's quantity:",
       nowSale: "Discounted price:",
       atPieces: (n: string, off: string) => `${n} ${n === "1" ? "piece" : "pieces"} in your order · ${off} off the whole order`,
+      perPiece: "each",
+      perPack: (n: string, p: string) => `${n}-size pack: ${p}`,
+    },
+    pack: {
+      line: (packs: string, n: string, pieces: string) => `${packs} × ${n}-size pack · ${pieces} pieces`,
+      single: "single",
+      name: (n: string) => `${n}-size pack`,
+      only: (what: string) => `${what} only`,
+      list: (head: string, last: string) => `${head} or ${last}`,
     },
     steps: {
       reached: (off: string) => `Your order has reached a ${off} quantity discount.`,

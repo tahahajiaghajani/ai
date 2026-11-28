@@ -50,7 +50,10 @@ export interface OrderItem {
   unit_price: number;
   /** one piece at the price the member saw (null: orders from before round five, same as unit_price) */
   list_price: number | null;
+  /** pieces (a pack line: packs × pack) */
   qty: number;
+  /** round six: how the line was sold — 1 = single, 2–5 = packs of that many sizes (packs = qty / pack) */
+  pack: number;
   /** unit_price × qty */
   line_total: number;
 }
@@ -148,11 +151,17 @@ export interface OrderDetail extends Order {
   admin_note?: string;
 }
 
-/** One line of the cart as the browser keeps it (prices are always read again on the server). */
+/**
+ * One line of the cart as the browser keeps it (prices are always read again on the server). `qty` counts packs of
+ * `pack` pieces (1 = single, so a line from before round six is unchanged); src/lib/basket.ts linePieces turns it
+ * into the pieces that every price, step and stock check counts.
+ */
 export interface CartLine {
   productId: string;
   variantId: string | null;
   qty: number;
+  /** 1 = single («تک»), 2–5 = a pack of that many sizes (src/lib/packs.ts) */
+  pack: number;
 }
 
 /** Statuses in which the store has accepted an order: it counts as a purchase towards Pro (members.ts checkPro). */

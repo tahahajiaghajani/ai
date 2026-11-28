@@ -4,7 +4,8 @@ import { after } from "next/server";
 import { currentUser, setProHint, USERS } from "@/lib/auth";
 import { proPrices } from "@/lib/catalog";
 import { db } from "@/lib/db";
-import { formatPrice, normalizePhone } from "@/lib/format";
+import { formatPrice, normalizePhone, num } from "@/lib/format";
+import { commonCopy } from "@/content/copy/common";
 import { postMessage } from "@/lib/messages";
 import { notifyTeam } from "@/lib/notify";
 import { cleanLines, getOrder, placeOrder as place, setOrderStatus } from "@/lib/orders";
@@ -35,7 +36,7 @@ const MSG = {
   priceChanged: { fa: "قیمت یکی از اقلام همین حالا تغییر کرد؛ سفارش به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "A price has just changed — your order has been updated; please check the new total and confirm again." },
   saleEnded: { fa: "زمان تخفیف روزهای خاص همین حالا به پایان رسید؛ سفارش با قیمت‌های تازه به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "The special-day discount has just ended — your order now shows the new prices; please check the total and confirm again." },
   saleStarted: { fa: "تخفیف روزهای خاص همین حالا آغاز شد؛ سفارش با قیمت‌های تازه به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "The special-day discount has just begun — your order now shows the new prices; please check the total and confirm again." },
-  pack: { fa: "یکی از اقلام دیگر به این شکل فروخته نمی‌شود؛ آن را از صفحه‌ی اثر دوباره انتخاب کنید.", en: "One item is no longer sold this way — please choose it again on its page." },
+  pack: { fa: "یکی از اقلام دیگر به این شکل (تک یا بسته) فروخته نمی‌شود؛ نوع فروش آن را از صفحه‌ی اثر دوباره انتخاب کنید.", en: "One item is no longer sold this way (single or in packs) — please choose how to buy it again on its page." },
   placed: { fa: "سفارش شما ثبت شد.", en: "Your order has been placed." },
   cancelled: { fa: "سفارش لغو شد.", en: "The order has been cancelled." },
   cantCancel: { fa: "این سفارش دیگر قابل لغو نیست؛ با فروشگاه تماس بگیرید.", en: "This order can no longer be cancelled — please contact the store." },
@@ -124,11 +125,16 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
       link: `/account/orders/${r.code}`,
     });
     if (s.notify.onOrder) {
-      const lines = (order?.items ?? []).map((i) => `• ${i.name_fa}${i.variant_fa ? ` (${i.variant_fa})` : ""} × ${i.qty}`).join("\n");
+      const lines = (order?.items ?? []).map((i) => `• ${i.name_fa}${i.variant_fa ? ` (${i.variant_fa})` : ""} ${teamQty(i)}`).join("\n");
       await notifyTeam(`سفارش تازه ${r.code}\n${customer.name} — ${customer.phone}${customer.business ? `\n${customer.business}` : ""}\n${customer.city}\n${lines}${order ? `\nجمع: ${formatPrice(order.total, "fa")}` : ""}\n${env.siteUrl}/admin/orders/${r.code}`, s.notify);
     }
   });
   return { ok: true, code: r.code, message: MSG.placed[lang] };
+}
+
+/** A line's quantity in the team's message: «× ۵», or for packs «— ۳ بسته‌ی ۴ سایزی · ۱۲ عدد». */
+function teamQty(i: { qty: number; pack: number }): string {
+  return i.pack > 1 ? `— ${commonCopy("fa").pack.line(num(i.qty / i.pack, "fa"), num(i.pack, "fa"), num(i.qty, "fa"))}` : `× ${i.qty}`;
 }
 
 /** A member may cancel their own order while it still awaits the store's confirmation. */
