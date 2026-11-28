@@ -39,3 +39,31 @@ describe("the round-six SQL file", () => {
     expect(code.indexOf("insert into public.celin_migrations (name) values ('20261128100000_celin_round_six')")).toBeGreaterThan(code.indexOf("drop function if exists public.celin_place_order(uuid, jsonb, jsonb, text, jsonb);"));
   });
 });
+
+describe("the owner's note on the round-six file (docs/SETUP_FA.md)", () => {
+  const setup = readFileSync(path.resolve(__dirname, "../docs/SETUP_FA.md"), "utf8");
+  const entry = setup.split("\n").find((l) => l.startsWith("- **به‌روزرسانی آذر ۱۴۰۵"))!;
+  const collections = setup.split("\n").find((l) => l.startsWith("4. **دسته‌ها و مجموعه‌ها**"))!;
+
+  it("names everything the file enables", () => {
+    expect(entry).toContain("`20261128100000_celin_round_six.sql`");
+    for (const what of ["ثبت سفارش با تخفیف روزهای خاص", "فروش بسته‌ای سایزها", "رنگ‌های آبکاری، نگین و چرم", "سنجیدن جمع سفارش", "تصاویر چرخان سرآغاز", "حذف مجموعه‌ی «میرا» (فقط اگر محصولی در آن نباشد)"]) expect(entry).toContain(what);
+  });
+
+  it("says it needs the round-five file first, and that «کپی SQL» gives them in order", () => {
+    expect(entry).toContain("به `20261111100000_celin_membership_pro.sql` نیاز دارد");
+    expect(entry).toContain("«کپی SQL» فایل‌های اجرانشده را به‌ترتیب می‌دهد");
+  });
+
+  it("says what works before it runs, and that the collections follow within an hour", () => {
+    expect(entry).toContain("اعضا همچنان قطعه‌های تک را بدون تخفیف روزهای خاص سفارش می‌دهند");
+    expect(entry).toContain("بسته‌ها، رنگ‌ها و روشن کردن تخفیف روزهای خاص منتظر این فایل می‌مانند");
+    expect(entry).toContain("نمایش مجموعه‌ها در سایت تا یک ساعت بعد");
+    expect(entry).toContain("اجرای دوباره‌ی فایل بی‌اثر است");
+  });
+
+  it("says a collection with no picture anywhere is not listed", () => {
+    expect(collections).toContain("مجموعه‌ای که نه تصویر خودش را دارد و نه اثر منتشرشده‌ی تصویردار، در فهرست‌های سایت");
+    expect(entry + collections).not.toMatch(/ضمانت|زیرکونیا/);
+  });
+});
