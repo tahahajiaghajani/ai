@@ -27,7 +27,7 @@
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES, refTarget } from "@shared/model/types";
 import type { Cond, Leaf } from "@shared/model/conditions";
-import { ALWAYS, NEVER } from "@shared/model/conditions";
+import { ALWAYS, NEVER, isNever } from "@shared/model/conditions";
 import { cleanRecipients, hasRecipients } from "@shared/notify";
 
 export type RefRole = "parent" | "pointer" | "restriction" | "producer" | "assignment" | "anchor" | "approval" | "trail" | "snapshot";
@@ -587,7 +587,9 @@ export const JSON_FIELDS: Record<string, Record<string, JsonDecision>> = {
   cab_agenda_item: { votes: "ids" },
   calendar: { hours: "none" },
   capacity_record: { samples: "none" },
-  catalog_audience: { condition: "cond:tk" },
+  // a criterion of the audience (with its lists, `AUDIENCE_CRITERIA`): one that can no longer hold is kept as «never»,
+  // and the audience's own rule (`judgeRestrictions`) decides whether the audience can still match anyone
+  catalog_audience: { condition: "cond:tk-narrow" },
   catalog_item: { field_map: "ids" },
   catalog_item_version: { schema: "ids" },
   catalog_task_template: { condition: "cond:tk" },
@@ -835,6 +837,7 @@ export const RESTRICTION_SETS: Record<string, readonly (readonly string[])[]> = 
   portal_topic: [["aud_units", "aud_groups", "aud_locations", "aud_users"]],
   survey: [["aud_units", "aud_groups", "aud_locations", "aud_users"]],
   catalog: [["available_for"]],
+  catalog_category: [["available_for"]],
   catalog_item: [["available_for"]],
   // the cost types an allocation rule shares of its centre, every cost of it when none is named: a rule that named only
   // the pack's types ends (it never comes to share the whole centre)
@@ -851,6 +854,168 @@ export const AUDIENCE_WORDS = { cut: "مخاطبان نمایشی برداشته
 export const RESTRICTION_SCALARS: Record<string, readonly string[]> = {
   sla_definition: ["service_id", "customer_unit_id"],
 };
+
+/**
+ * Audiences whose filled criteria combine by their own rule (src/shared/request/audience.ts: «همه» — every filled
+ * criterion must hold — or «هر یک»; an audience without criteria matches nobody). A list criterion (people, groups,
+ * units, locations) that loses every id, or a condition that can no longer hold, holds for nobody any more. With «همه»
+ * the audience can then match nobody: dropping the criterion instead would let it match everyone the other criteria
+ * match (every agent of the organisation for «agents of the pack's branch») — it ends. With «هر یک» that criterion only
+ * stops counting (the others match whom they matched); an audience left with no criterion that can hold ends. A list
+ * that keeps a live id only narrows. Their lists are restrictions: cleaned in the clear phase (a definition, with its
+ * review line), never cleared as pointers.
+ */
+export const AUDIENCE_CRITERIA: Record<string, { match: string; all: string; lists: readonly string[]; others: readonly string[]; condition: string | null }> = {
+  catalog_audience: { match: "match", all: "all", lists: ["users", "groups", "units", "locations"], others: ["roles", "personas", "vip_only"], condition: "condition" },
+};
+
+/** What the purge's rule says of a row's restrictions, audiences and producers (`judgeRestrictions`). */
+export interface RestrictionVerdict {
+  /** the columns that change: lists without the removed ids, scopes and producers emptied */
+  patch: Record<string, unknown>;
+  /** the row cannot keep its meaning without widening (or doing what it did): it ends — see `deadEnd` */
+  dead: boolean;
+  /** what was taken out, in Persian */
+  notes: string[];
+}
+
+/**
+ * The purge's rule for a row's allow-lists (`RESTRICTION_SETS`), scopes (`RESTRICTION_SCALARS`), audience criteria
+ * (`AUDIENCE_CRITERIA`) and producers (`PRODUCER_REFS`) — never widened: a list that loses only some ids is narrowed, an
+ * allow-list or a «همه» criterion left naming nobody, a scope or a producer that named a removed row ends the row. Pure,
+ * and shared by the clear phase (clean.ts, the row as its conditions were pruned) and the push filter (pushed.ts, the
+ * row a Windows app pushes after a purge): what the purge would not leave widened is never stored widened either.
+ * `gone`: a removed id; `has`: the columns the row's table has.
+ */
+export function judgeRestrictions(table: string, row: Record<string, unknown>, gone: (id: string) => boolean, has: (col: string) => boolean = () => true): RestrictionVerdict {
+  const out: RestrictionVerdict = { patch: {}, dead: false, notes: [] };
+  const removed = (x: unknown) => typeof x === "string" && gone(x.toLowerCase());
+  for (const s of RESTRICTION_SETS[table] ?? []) {
+    let before = 0;
+    let left = 0;
+    let touched = false;
+    for (const n of s) {
+      if (!has(n)) continue;
+      const v = row[n];
+      const list = Array.isArray(v) ? v : v ? [v] : [];
+      before += list.length;
+      const kept = list.filter((x) => !removed(x));
+      left += kept.length;
+      if (kept.length !== list.length) {
+        out.patch[n] = Array.isArray(v) ? kept : null;
+        touched = true;
+      }
+    }
+    const words = RESTRICTION_WORDS[table] ?? AUDIENCE_WORDS;
+    if (touched) out.notes.push(words.cut);
+    // a list left with nobody (nothing) named would mean everyone (everything): the row ends instead (never widened)
+    if (touched && before > 0 && left === 0) {
+      out.dead = true;
+      out.notes.push(words.only);
+    }
+  }
+  for (const n of RESTRICTION_SCALARS[table] ?? []) {
+    if (!has(n) || !removed(row[n])) continue;
+    out.patch[n] = null;
+    out.dead = true;
+    out.notes.push("دامنهٔ آن به دادهٔ نمایشی محدود بود");
+  }
+  for (const n of PRODUCER_REFS[table] ?? []) {
+    if (!has(n) || !removed(row[n])) continue;
+    out.patch[n] = null;
+    out.dead = true;
+    out.notes.push("آنچه انجام می‌داد به دادهٔ نمایشی می‌رسید");
+  }
+  const aud = AUDIENCE_CRITERIA[table];
+  if (aud) {
+    // the criteria that were filled: those that can still hold for someone, and those that no longer can
+    let live = 0;
+    let lost = 0;
+    let touched = false;
+    for (const n of aud.lists) {
+      const list = has(n) && Array.isArray(row[n]) ? (row[n] as unknown[]) : [];
+      if (!list.length) continue;
+      const kept = list.filter((x) => !removed(x));
+      if (kept.length !== list.length) {
+        out.patch[n] = kept;
+        touched = true;
+      }
+      if (kept.length) live++;
+      else lost++;
+    }
+    for (const n of aud.others) {
+      const v = has(n) ? row[n] : undefined;
+      if (Array.isArray(v) ? v.length > 0 : v === true) live++;
+    }
+    const cond = aud.condition && has(aud.condition) ? row[aud.condition] : null;
+    if (cond && typeof cond === "object" && !Array.isArray(cond) && Object.keys(cond).length) {
+      // a condition the clear phase pruned to «never» holds for nobody (a pushed one is as the app sent it)
+      if (isNever(cond as Cond)) lost++;
+      else live++;
+    }
+    if (touched) out.notes.push("افراد، گروه‌ها، واحدها یا مکان‌های نمایشی از مخاطب برداشته شدند");
+    const all = row[aud.match] === aud.all;
+    if (lost && (all || !live)) {
+      out.dead = true;
+      out.notes.push(all ? "یکی از شرط‌های این مخاطب («همهٔ شرط‌ها») فقط دادهٔ نمایشی را نام می‌برد؛ بی آن مخاطب گسترده‌تر می‌شد" : "مخاطبان آن فقط دادهٔ نمایشی بودند");
+    }
+  }
+  return out;
+}
+
+/** The columns `judgeRestrictions` reads: lists (jsonb arrays of ids) and single references (uuid). */
+export function restrictionColumns(table: string): { lists: string[]; scalars: string[] } {
+  const lists = new Set<string>([...(RESTRICTION_SETS[table] ?? []).flat(), ...(AUDIENCE_CRITERIA[table]?.lists ?? [])]);
+  const scalars = new Set<string>([...(RESTRICTION_SCALARS[table] ?? []), ...(PRODUCER_REFS[table] ?? [])]);
+  return { lists: [...lists], scalars: [...scalars] };
+}
+
+/**
+ * How a definition left meaningless ends when it has no «فعال» flag (`active`): its own switch, or its lifecycle — from
+ * each state it may be in, the state it goes to (a state not named: it stays, already out of use). Without either it is
+ * removed (soft delete): the preview, the review line and the report say «حذف», never «غیرفعال».
+ *   · a published catalogue item leaves the catalogue («بازنشسته»; «بازگرداندن به کاتالوگ» brings it back, once it has an
+ *     audience again); a draft or one in review cannot be ordered and stays so — its review line asks for an audience
+ *     before it is published;
+ *   · a change lockdown ends («پایان قرنطینه»: the changes it held go on, journaled); a certification campaign is
+ *     cancelled.
+ */
+export const DEAD_ENDS: Record<string, { flag: string } | { states: Record<string, string> }> = {
+  ai_agent: { flag: "enabled" },
+  ai_skill: { flag: "enabled" },
+  catalog_item: { states: { published: "retired" } },
+  change_lockdown: { states: { active: "released" } },
+  ci_cert_campaign: { states: { draft: "canceled", active: "canceled" } },
+};
+
+/** How a row of `def` that lost its meaning ends (`DEAD_ENDS`): the columns to write, and what to call it. */
+export interface DeadEnd {
+  /** switched off by a flag, retired or moved to a closed state by its lifecycle, left as it is, or removed */
+  how: "off" | "retire" | "state" | "stays" | "remove";
+  /** the columns that end it (the flag, the state: a lifecycle state change is a transition through the engine) */
+  patch: Record<string, unknown>;
+  /** the label of the state it goes to (`state`) */
+  state?: string;
+  /** why it stays as it is, for its review line */
+  note?: string;
+}
+
+const userField = (def: TableDef, name: string) => def.fields.find((f) => f.name === name && !f.base);
+
+export function deadEnd(def: TableDef, row: Record<string, unknown>): DeadEnd {
+  const end = DEAD_ENDS[def.key];
+  const flag = userField(def, "active")?.type === "bool" ? "active" : end && "flag" in end && userField(def, end.flag)?.type === "bool" ? end.flag : null;
+  if (flag) return row[flag] === false ? { how: "stays", patch: {} } : { how: "off", patch: { [flag]: false } };
+  const model = def.states;
+  if (end && "states" in end && model) {
+    const at = String(row[model.field] ?? "");
+    const to = end.states[at];
+    if (!to) return { how: "stays", patch: {}, ...(def.key === "catalog_item" && at !== "retired" ? { note: "منتشرنشده است و سفارش داده نمی‌شود؛ پیش از انتشار مخاطب تازه‌ای برگزینید" } : {}) };
+    const label = model.states.find((s) => s.value === to)?.label ?? to;
+    return to === "retired" ? { how: "retire", patch: { [model.field]: to }, state: label } : { how: "state", patch: { [model.field]: to }, state: label };
+  }
+  return { how: "remove", patch: {} };
+}
 
 /** Snapshot tables: never rewritten (a published workflow version, a flow version). */
 export const SNAPSHOT_TABLES = new Set(["process_version", "flow_version"]);
@@ -878,7 +1043,7 @@ const isRefField = (f: FieldDef) => FIELD_TYPES[f.type]?.family === "ref";
 /** The reference fields of an (effective) table definition with their roles. */
 export function fieldRefs(def: TableDef): FieldRef[] {
   const out: FieldRef[] = [];
-  const restricted = new Set((RESTRICTION_SETS[def.key] ?? []).flat());
+  const restricted = new Set([...(RESTRICTION_SETS[def.key] ?? []).flat(), ...(AUDIENCE_CRITERIA[def.key]?.lists ?? [])]);
   const scalars = new Set(RESTRICTION_SCALARS[def.key] ?? []);
   const producers = new Set(PRODUCER_REFS[def.key] ?? []);
   const parents = new Set(PARENTS[def.key] ?? []);

@@ -2,11 +2,13 @@
 // catalogue of `refs.ts`:
 //   clear (class C)   definitions that name the pack are kept and cleaned: conditions pruned by meaning, recipients,
 //                     levels, actions, flow steps, forms, workflow drafts, defaults, filters; a definition left
-//                     meaningless is deactivated (or, without an «فعال» flag, removed), an allow-list that would empty
-//                     ends its row (never «everyone»), a published workflow whose current version can no longer route
-//                     is retired when none of its managers is left — otherwise its steps wait for the managers and it
-//                     is listed for review (versions are never rewritten). Each definition gets an audit line saying
-//                     what went.
+//                     meaningless ends — switched off by its «فعال» flag or its own switch, retired or closed by its
+//                     lifecycle (a published catalogue item is retired), else removed (refs.ts `deadEnd`) —, an
+//                     allow-list, scope or «همه» audience criterion that would empty ends its row (never «everyone»,
+//                     refs.ts `judgeRestrictions`); a published workflow whose current version can no longer route stays
+//                     published: its step waits for the managers, or for the organisation's administrators when none
+//                     is left, and it is listed for review (versions are never rewritten). Each definition gets an
+//                     audit line saying what went and how it ended (./review.ts).
 //   reroute (class D) kept real records lose their references to removed rows through the engine, as the system: the
 //                     engine's hooks route them again (assignment rules, default queues); open approvals asked of
 //                     removed people are planned again; open workflow tasks of removed people end and their rounds
@@ -23,7 +25,6 @@ import type { Queryable, Tx } from "../../db";
 import { pgArray } from "../../db";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES } from "@shared/model/types";
-import { uuidv7 } from "@shared/id";
 import { formStepOf } from "@shared/process/graph";
 import { ifNobodyOf } from "@shared/process/assignees";
 import { loadSchema } from "../../engine/schema";
@@ -34,11 +35,12 @@ import { rerunApprovalRulesIn } from "../sla/approvals";
 import { reresolveRoundIn } from "../process/reresolve";
 import { loadVersionInfo, lockCase, stepWaitKey, type CaseRow, type VersionInfo } from "../process/engine/store";
 import {
-  AUDIENCE_WORDS, BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, RESTRICTION_SCALARS, RESTRICTION_SETS, RESTRICTION_WORDS, PRODUCER_REFS, SNAPSHOT_TABLES,
-  fieldRefs, jsonHandler, pruneIds, pruneRules, routingFields, uuidsIn, type Gone, type FieldRef,
+  BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, SNAPSHOT_TABLES,
+  deadEnd, fieldRefs, judgeRestrictions, jsonHandler, pruneIds, pruneRules, restrictionColumns, routingFields, uuidsIn, type Gone, type FieldRef,
 } from "./refs";
 import { failReason, inSavepoint, type CleanedDefinition, type ReroutedBucket, type Skipped, type TableInfo } from "./purge";
 import { isPurgedSql } from "./ledger";
+import { reviewLine } from "./review";
 import { rowWords } from "./samples";
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
@@ -189,16 +191,6 @@ async function writeRow(
   return "skipped";
 }
 
-/** The definition's audit line: what the purge took out of it, for its owner to review (it names only the real row). */
-async function reviewLine(tx: Tx, orgId: string, c: CleanedDefinition): Promise<void> {
-  const verb = c.retired ? "بازنشسته شد" : c.deactivated ? "غیرفعال شد" : "پاک‌سازی شد";
-  const summary = `پس از حذف داده‌های نمایشی نیاز به بازبینی دارد: ${c.label} «${c.name}» ${verb}${c.what ? ` — ${c.what}` : ""}`.slice(0, 500);
-  await tx.query(
-    `insert into sm_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin, actor_kind) values ($1, $2, null, 'demo_purge_review', $3, $4, $5, $6::jsonb, null, 'system')`,
-    [uuidv7(), orgId, c.table, c.id, summary, JSON.stringify({ deactivated: c.deactivated, retired: !!c.retired })],
-  );
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // clear (class C): definitions
 
@@ -216,14 +208,17 @@ interface Work {
   def: TableDef;
 }
 
-/** The json fields of a definition with a handler, and its restriction and producer references. */
+/**
+ * The json fields of a definition with a handler, and its restriction, audience and producer references (the lists and
+ * the single references `judgeRestrictions` reads).
+ */
 function cWork(t: TableInfo, def: TableDef) {
   const json = def.fields.filter((f) => !f.base && (f.type === "json" || f.type === "conditions") && isJsonCol(t, f.name)).map((f) => ({ f, h: jsonHandler(def.key, f) })).filter((x) => !!x.h) as { f: FieldDef; h: NonNullable<ReturnType<typeof jsonHandler>> }[];
-  const sets = (RESTRICTION_SETS[def.key] ?? []).map((s) => s.filter((n) => t.cols.has(n))).filter((s) => s.length);
-  const scalars = (RESTRICTION_SCALARS[def.key] ?? []).filter((n) => t.cols.get(n)?.type === "uuid");
-  const producers = (PRODUCER_REFS[def.key] ?? []).filter((n) => t.cols.get(n)?.type === "uuid");
+  const rc = restrictionColumns(def.key);
+  const lists = rc.lists.filter((n) => t.cols.has(n));
+  const scalars = rc.scalars.filter((n) => t.cols.get(n)?.type === "uuid");
   const idText = def.key === "field_def" && t.cols.has("default_value") ? ["default_value"] : [];
-  return { json, sets, scalars, producers, idText };
+  return { json, lists, scalars, idText };
 }
 
 /** Name-based references (library fields, position keys): a definition that may name them by name, not by id. */
@@ -243,9 +238,8 @@ const RECORD_TABLES = new Set([
 ]);
 export const isRecordTable = (def: TableDef): boolean => def.extends === "task" || RECORD_TABLES.has(def.key);
 
-/** Deactivate (or, without an «فعال» flag, remove) a definition that lost its meaning. */
-async function retireRow(tx: Tx, sys: Ctx, t: TableInfo, def: TableDef, id: string, skipped: Skipped[]): Promise<boolean> {
-  if (hasField(def, "active")) return false;
+/** Remove a definition that lost its meaning and can be neither switched off nor closed by its lifecycle (`deadEnd`). */
+async function removeRow(tx: Tx, sys: Ctx, t: TableInfo, def: TableDef, id: string, skipped: Skipped[]): Promise<boolean> {
   const viaEngine = await inSavepoint(tx, () => removeIn(tx, sys, def.key, id, { trusted: true, allowLocked: true }));
   if (viaEngine.ok) return true;
   const direct = await inSavepoint(tx, () => tx.query(`update ${ident(t.name)} set deleted_at = now(), updated_at = now() where id = $1 and org_id = $2`, [id, sys.org.id]));
@@ -273,18 +267,18 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
     const def = defs.get(t.name);
     if (!def || SNAPSHOT_TABLES.has(def.key) || !t.cols.has("deleted_at")) continue;
     const w = cWork(t, def);
-    if (w.json.length || w.sets.length || w.scalars.length || w.producers.length || w.idText.length) work.push({ t, def, ...w });
+    if (w.json.length || w.lists.length || w.scalars.length || w.idText.length) work.push({ t, def, ...w });
   }
   const namePatterns = [...names.libraryFields, ...names.positions.filter((p) => !/^[0-9a-f-]{36}$/i.test(p)), ...names.tableFields.map((f) => f.name)].map((n) => `%"${n.replace(/[%_\\]/g, (c) => `\\${c}`)}"%`);
   for (; cur.i < work.length; cur.i++, cur.after = null) {
-    const { t, def, json, sets, scalars, producers, idText } = work[cur.i];
+    const { t, def, json, lists, scalars, idText } = work[cur.i];
     for (;;) {
       if (Date.now() > st.until) return false;
       const conds: string[] = [];
       const params: unknown[] = [orgId];
       for (const { f } of json) conds.push(jsonNamesDemo(`x.${ident(f.name)}`));
-      for (const n of [...scalars, ...producers]) conds.push(`(x.${ident(n)} is not null and ${isDemo(`x.${ident(n)}`)})`);
-      for (const s of sets) for (const n of s) conds.push(t.cols.get(n)?.type === "jsonb" ? arrayNamesDemo(`x.${ident(n)}`) : `(x.${ident(n)} is not null and ${isDemo(`x.${ident(n)}`)})`);
+      for (const n of scalars) conds.push(`(x.${ident(n)} is not null and ${isDemo(`x.${ident(n)}`)})`);
+      for (const n of lists) conds.push(t.cols.get(n)?.type === "jsonb" ? arrayNamesDemo(`x.${ident(n)}`) : `(x.${ident(n)} is not null and ${isDemo(`x.${ident(n)}`)})`);
       for (const n of idText) conds.push(`(x.${ident(n)} is not null and ${isDemoText(`trim(x.${ident(n)})`)})`);
       if (NAMED.has(def.key) && namePatterns.length) {
         params.push(pgArray(namePatterns));
@@ -314,43 +308,11 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
           if (r.dead) dead = true;
           if (r.note) notes.push(r.note);
         }
-        for (const s of sets) {
-          let before = 0;
-          let left = 0;
-          let touched = false;
-          for (const n of s) {
-            const v = row[n];
-            const list = Array.isArray(v) ? v : v ? [v] : [];
-            before += list.length;
-            const kept = list.filter((x) => !(typeof x === "string" && gone.id(x)));
-            left += kept.length;
-            if (kept.length !== list.length) {
-              patch[n] = Array.isArray(v) ? kept : null;
-              touched = true;
-            }
-          }
-          const words = RESTRICTION_WORDS[def.key] ?? AUDIENCE_WORDS;
-          if (touched) notes.push(words.cut);
-          // a list left with nobody (nothing) named would mean everyone (everything): the row ends instead (never widened)
-          if (touched && before > 0 && left === 0) {
-            dead = true;
-            notes.push(words.only);
-          }
-        }
-        for (const n of scalars) {
-          if (typeof row[n] === "string" && gone.id(row[n])) {
-            patch[n] = null;
-            dead = true;
-            notes.push("دامنهٔ آن به دادهٔ نمایشی محدود بود");
-          }
-        }
-        for (const n of producers) {
-          if (typeof row[n] === "string" && gone.id(row[n])) {
-            patch[n] = null;
-            dead = true;
-            notes.push("آنچه انجام می‌داد به دادهٔ نمایشی می‌رسید");
-          }
-        }
+        // allow-lists, scopes, audience criteria and producers: never widened (an audience's condition as just pruned)
+        const restricted = judgeRestrictions(def.key, { ...row, ...patch }, (x) => gone.id(x), (n) => t.cols.has(n));
+        Object.assign(patch, restricted.patch);
+        if (restricted.dead) dead = true;
+        notes.push(...restricted.notes);
         for (const n of idText) {
           if (typeof row[n] === "string" && uuidsIn(row[n]).some((x) => gone.id(x))) {
             patch[n] = null;
@@ -370,17 +332,22 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
         }
         // a flow whose graph changed has an unpublished draft now
         if (def.key === "flow" && "graph" in patch && hasField(def, "dirty") && row.version_id) patch.dirty = true;
-        const deactivate = dead && hasField(def, "active") && row.active !== false;
-        if (deactivate) patch.active = false;
+        // how a definition left meaningless ends: its flag, its lifecycle (a transition through the engine), or removal
+        const end = dead ? deadEnd(def, row) : null;
+        if (end) Object.assign(patch, end.patch);
+        if (end?.note) notes.push(end.note);
         const entry: CleanedDefinition = {
           table: def.key, label: def.label, id: String(row.id), name: await labelOf(tx, def, row), what: [...new Set(notes)].join("؛ ").slice(0, 400),
-          deactivated: deactivate || (dead && !hasField(def, "active")),
+          deactivated: end?.how === "off",
+          ...(end?.how === "retire" ? { retired: true } : {}),
+          ...(end?.how === "state" ? { ended: end.state } : {}),
+          ...(end?.how === "remove" ? { removed: true } : {}),
         };
         st.cleaned.push(entry);
         if (st.dry) continue;
         const how = await writeRow(tx, sys, t, def, String(row.id), patch, patch, st.skipped, "clear");
         if (how === "skipped") continue;
-        if (dead && !hasField(def, "active")) await retireRow(tx, sys, t, def, String(row.id), st.skipped);
+        if (end?.how === "remove") await removeRow(tx, sys, t, def, String(row.id), st.skipped);
         await reviewLine(tx, orgId, entry);
       }
       if (rows.length < CHUNK) break;
@@ -391,14 +358,16 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
 
 /**
  * Published workflows whose current version can no longer route: a step (not the start) whose rules and fallbacks all
- * name removed rows or positions the purge leaves without a holder. The version itself is never rewritten.
- *   · a step that waits while a live manager can act on it keeps the workflow published, listed for review: the 1.1.5
- *     waiting machinery covers it — a new case's journal says why, its managers are told and can give the step to
- *     someone or find its people again, and a holder added later gets it (../process/reresolve);
- *   · a step nobody could ever act on — it waits, or goes to the managers, and none of its managers is left — retires
- *     the workflow (no new case stalls; open cases finish on their version).
+ * name removed rows or positions the purge leaves without a holder. The version itself is never rewritten, and the
+ * workflow stays published: after the purge someone can always act on such a step. Its new cases wait there — a step
+ * that «منتظر بماند», or one that «به مسئولان گردش‌کار برسد» with no manager left to take it — and the 1.1.5 waiting
+ * machinery covers them: the journal says why, the managers are told and can give the step to someone or find its
+ * people again, and a holder added later gets it (../process/reresolve). When none of the managers it names is left
+ * (they were all the pack's people), its cases name none — new cases leave removed managers out
+ * (../process/engine/apply.ts `liveManagers`), kept cases lose them in the reroute — and the organisation's
+ * administrators manage them and are told, as for a workflow that names no managers. Each is listed for review.
  */
-export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, st: StepState): Promise<void> {
+export async function reviewStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, st: StepState): Promise<void> {
   const rows = await tx.query<{ id: string; name: string; key: string; graph: unknown; managers: unknown; manager_groups: unknown }>(
     `select p.id::text as id, p.name, p.key, v.graph, v.managers, v.manager_groups from sm_processes p join sm_process_versions v on v.id = p.current_version_id and v.org_id = p.org_id
       where p.org_id = $1 and p.deleted_at is null and p.status = 'published' and not ${isDemo("p.id")} and not ${isDemo("v.id")}`,
@@ -406,9 +375,9 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
   );
   for (const p of rows) {
     const gone = await goneOracle(tx, orgId, [p.graph, p.managers, p.manager_groups], names, { emptiedAsGone: true });
-    const managersLive = [...(Array.isArray(p.managers) ? p.managers : []), ...(Array.isArray(p.manager_groups) ? p.manager_groups : [])];
-    const managersOk = !managersLive.length || managersLive.some((x) => typeof x === "string" && !gone.id(x));
-    const stuck: string[] = [];
+    const named = [...(Array.isArray(p.managers) ? p.managers : []), ...(Array.isArray(p.manager_groups) ? p.manager_groups : [])].filter((x): x is string => typeof x === "string");
+    // a manager (or a managers' group) of the workflow's own is left: the managers act; else the administrators do
+    const managersLeft = named.some((x) => !gone.id(x));
     const waits: string[] = [];
     const nodes = Array.isArray((p.graph as { nodes?: unknown[] })?.nodes) ? ((p.graph as { nodes: { id: string; type: string; label?: string; config?: unknown }[] }).nodes) : [];
     for (const n of nodes) {
@@ -421,34 +390,21 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
       const fallbackDead = !step.fallback?.length || dead(step.fallback);
       const nobody = ifNobodyOf(step);
       if (noRules || !rulesDead || !fallbackDead) continue;
-      if ((nobody === "wait" || nobody === "managers") && !managersOk) stuck.push(String(n.label || n.id));
-      else if (nobody === "wait") waits.push(String(n.label || n.id));
+      // the step waits now: «منتظر بماند», or «به مسئولان گردش‌کار برسد» with no manager to take it
+      if (nobody === "wait" || (nobody === "managers" && !managersLeft)) waits.push(String(n.label || n.id));
     }
-    if (!stuck.length && !waits.length) continue;
-    const retire = stuck.length > 0;
-    const steps = (xs: string[]) => `مرحله‌های «${xs.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)`;
+    if (!waits.length) continue;
+    const who = managersLeft
+      ? "مسئولان گردش‌کار باخبر می‌شوند"
+      : named.length
+        ? "چون هیچ‌یک از مسئولانش نمانده است، مدیران سازمان آن‌ها را اداره می‌کنند و باخبر می‌شوند"
+        : "مدیران سازمان، که پرونده‌های گردش‌کار بی‌مسئول را اداره می‌کنند، باخبر می‌شوند";
     const entry: CleanedDefinition = {
-      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false, ...(retire ? { retired: true } : {}),
-      what: (retire
-        ? `${steps(stuck)} و هیچ‌یک از مسئولانش هم نمانده است`
-        : `${steps(waits)}؛ گردش‌کار منتشر می‌ماند: پرونده‌های تازه آن‌جا منتظر می‌مانند و مسئولان گردش‌کار باخبر می‌شوند تا کسی را برگزینند یا دارنده‌ای بیفزایند`
-      ).slice(0, 400),
+      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false,
+      what: `مرحله‌های «${waits.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)؛ گردش‌کار منتشر می‌ماند: پرونده‌های تازه آن‌جا منتظر می‌مانند و ${who} تا کسی را برگزینند یا دارنده‌ای بیفزایند`.slice(0, 400),
     };
     st.cleaned.push(entry);
-    if (st.dry) continue;
-    if (!retire) {
-      await reviewLine(tx, orgId, entry);
-      continue;
-    }
-    const r = await inSavepoint(tx, () => updateIn(tx, sys, "process", p.id, { status: "retired" }, { trusted: true, keepVersion: true }));
-    if (!r.ok) {
-      const direct = await inSavepoint(tx, () => tx.query(`update sm_processes set status = 'retired', updated_at = now() where id = $1 and org_id = $2`, [p.id, orgId]));
-      if (!direct.ok) {
-        st.skipped.push({ phase: "clear", table: "sm_processes", rows: 1, reason: failReason(direct.error) });
-        continue;
-      }
-    }
-    await reviewLine(tx, orgId, entry);
+    if (!st.dry) await reviewLine(tx, orgId, entry);
   }
 }
 

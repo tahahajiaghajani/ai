@@ -16,9 +16,9 @@ import { evaluate, type Cond } from "@shared/model/conditions";
 import { archivable, archiveTableOf } from "@server/engine/ddl";
 import { COMPUTED_TABLES } from "@server/modules/demo/purge";
 import {
-  ABOUT_COLUMNS, FOREIGN_TEXT, ID_TEXT, JSON_FIELDS, PARENTS, PLATFORM_JSON_DERIVES, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_NONE,
+  ABOUT_COLUMNS, AUDIENCE_CRITERIA, DEAD_ENDS, FOREIGN_TEXT, ID_TEXT, JSON_FIELDS, PARENTS, PLATFORM_JSON_DERIVES, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_NONE,
   PLATFORM_JSON_PRUNES, PLATFORM_KEPT, PRODUCER_REFS, RESTRICTION_SCALARS, RESTRICTION_SETS, RESTRICTION_WORDS, SNAPSHOT_TABLES, TRAIL_TABLE_NAMES,
-  actionsHandler, approvalLevelsHandler, fieldRefs, jsonHandler, processDraftHandler, pruneCond, pruneIds, pruneRules, recipientsHandler,
+  actionsHandler, approvalLevelsHandler, deadEnd, fieldRefs, judgeRestrictions, jsonHandler, processDraftHandler, pruneCond, pruneIds, pruneRules, recipientsHandler,
   type Gone,
 } from "@server/modules/demo/refs";
 
@@ -129,6 +129,18 @@ describe("the catalogue names only what exists (lists never rot)", () => {
     refs("RESTRICTION_SETS", Object.fromEntries(Object.entries(RESTRICTION_SETS).map(([t, s]) => [t, s.flat()])));
     // a list's own review words name a list the purge cleans
     for (const t of Object.keys(RESTRICTION_WORDS)) if (!RESTRICTION_SETS[t]) stale.push(`RESTRICTION_WORDS ${t}`);
+    refs("AUDIENCE_CRITERIA", Object.fromEntries(Object.entries(AUDIENCE_CRITERIA).map(([t, a]) => [t, a.lists])));
+    for (const [t, a] of Object.entries(AUDIENCE_CRITERIA)) {
+      for (const n of [a.match, ...a.others, ...(a.condition ? [a.condition] : [])]) if (!defs.get(t)?.fields.some((f) => f.name === n)) stale.push(`AUDIENCE_CRITERIA ${t}.${n}`);
+    }
+    // a dead end names a switch the table has, or states of its lifecycle — and only for tables without «فعال»
+    for (const [t, end] of Object.entries(DEAD_ENDS)) {
+      const d = defs.get(t);
+      if (!d || d.fields.some((f) => f.name === "active" && !f.base)) stale.push(`DEAD_ENDS ${t}`);
+      else if ("flag" in end) {
+        if (d.fields.find((f) => f.name === end.flag && !f.base)?.type !== "bool") stale.push(`DEAD_ENDS ${t}.${end.flag}`);
+      } else for (const [from, to] of Object.entries(end.states)) if (!d.states?.states.some((x) => x.value === from) || !d.states.states.some((x) => x.value === to)) stale.push(`DEAD_ENDS ${t}: ${from} → ${to}`);
+    }
     for (const [t, m] of Object.entries(ID_TEXT)) for (const n of Object.keys(m)) if (family(t, n) !== "text") stale.push(`ID_TEXT ${t}.${n}`);
     for (const k of FOREIGN_TEXT) {
       const [t, n] = k.split(".");
@@ -294,10 +306,38 @@ describe("lists that empty never mean «everyone»", () => {
     expect(d.requester_view).toEqual(["u_real"]);
   });
 
+  it("an audience of «همه» that loses a criterion ends; «هر یک» only stops counting it; an end never deletes what can be switched off", () => {
+    const g = gone();
+    const ended = (row: Record<string, unknown>) => judgeRestrictions("catalog_audience", row, (x) => g.id(x));
+    expect(ended({ match: "all", units: [A], roles: ["agent"] })).toMatchObject({ dead: true, patch: { units: [] } });
+    expect(ended({ match: "all", units: [A, B], roles: ["agent"] })).toMatchObject({ dead: false, patch: { units: [B] } });
+    expect(ended({ match: "any", units: [A], roles: ["agent"] })).toMatchObject({ dead: false, patch: { units: [] } });
+    expect(ended({ match: "any", units: [A], groups: [A2] })).toMatchObject({ dead: true });
+    // a condition the clear phase pruned to «never» is a criterion that holds for nobody
+    expect(ended({ match: "all", roles: ["agent"], condition: { or: [] } }).dead).toBe(true);
+    expect(ended({ match: "any", roles: ["agent"], condition: { or: [] } }).dead).toBe(false);
+    // an allow-list of catalogue entries and a category's
+    expect(judgeRestrictions("catalog_category", { available_for: [A] }, (x) => g.id(x))).toMatchObject({ dead: true, patch: { available_for: [] } });
+    // a list with its own review words: an allocation rule that named only the pack's cost types ends, in its words
+    const words = RESTRICTION_WORDS.allocation_rule;
+    expect(judgeRestrictions("allocation_rule", { cost_types: [A] }, (x) => g.id(x))).toEqual({ dead: true, patch: { cost_types: [] }, notes: [words.cut, words.only] });
+    // the ends: a switch, a lifecycle (a published item retires, a draft stays unpublished), else removal
+    expect(deadEnd(defs.get("portal_link")!, { active: true })).toMatchObject({ how: "off", patch: { active: false } });
+    expect(deadEnd(defs.get("ai_agent")!, { enabled: true })).toMatchObject({ how: "off", patch: { enabled: false } });
+    expect(deadEnd(defs.get("catalog_item")!, { state: "published" })).toMatchObject({ how: "retire", patch: { state: "retired" } });
+    expect(deadEnd(defs.get("catalog_item")!, { state: "draft" })).toMatchObject({ how: "stays", patch: {} });
+    expect(deadEnd(defs.get("change_lockdown")!, { state: "active" })).toMatchObject({ how: "state", patch: { state: "released" }, state: "پایان‌یافته" });
+    expect(deadEnd(defs.get("view")!, {})).toMatchObject({ how: "remove" });
+  });
+
   it("roles: audiences and scopes are restrictions, requesters and required references parents, assignees pointers", () => {
     const role = (t: string, n: string) => fieldRefs(defs.get(t)!).find((r) => r.name === n)?.role;
     expect(role("portal_link", "aud_users")).toBe("restriction");
     expect(role("catalog_item", "available_for")).toBe("restriction");
+    expect(role("catalog_category", "available_for")).toBe("restriction");
+    // an audience's criteria are restrictions: cleaned by the audience's own rule, never cleared as pointers
+    expect(role("catalog_audience", "units")).toBe("restriction");
+    expect(role("catalog_audience", "users")).toBe("restriction");
     expect(role("sla_definition", "service_id")).toBe("restriction");
     expect(role("incident", "caller_id")).toBe("parent");
     expect(role("incident_task", "incident_id")).toBe("parent");

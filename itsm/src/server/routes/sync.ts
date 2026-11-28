@@ -22,13 +22,14 @@ import { orgStatus, statusError } from "../modules/platform/org-admin";
 import { CREATED_HERE_SQL, lockActiveOwners, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
 import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
 import type { Area, Level, Role } from "@shared/permissions";
+import type { TableDef } from "@shared/model/types";
 import { APP_VERSION_HEADER, SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
 import { openUploadWindow } from "../modules/process/sync/upload";
 import { queueReresolve } from "../modules/process/reresolve/queue";
-import { judgePurged, namesPurged, purgedInPush, type StoredRecord } from "../modules/demo/pushed";
+import { judgePurged, namesPurged, purgedInPush, reviewPushed, type PurgedVerdict, type StoredRecord } from "../modules/demo/pushed";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
@@ -253,7 +254,7 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
       // a row a demo purge removed is never brought back; a side row or membership of purged data neither
       if (purged.size && (def.engine !== "record" || purged.has(agg.id.toLowerCase()))) {
         const v = judgePurged(def, null, agg, null, purged);
-        if (v.kind !== "write") {
+        if (v.kind === "drop") {
           results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
           continue;
         }
@@ -286,16 +287,26 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
       }
       // a record that names what a demo purge removed: a new one that belongs to it is not stored (the purge would have
       // removed it) and a pointer of a new one is emptied; a stored one keeps what the server holds there and takes the
-      // push's other changes (modules/demo/pushed.ts)
+      // push's other changes; a definition whose allow-list, scope or producer would name only purged data is never
+      // stored widened — a new one is stored ended, a stored one keeps the server's copy whole (modules/demo/pushed.ts)
+      let handBack: { v: Extract<PurgedVerdict, { kind: "ended" }>; tdef: TableDef } | null = null;
       if (purged.size && def.engine === "record" && namesPurged(agg, purged)) {
         const held = existing ? await tx.one<StoredRecord>(`select custom from ${ident(def.table)} where id = $1`, [agg.id]) : null;
-        const v = judgePurged(def, (await orgSchema(ctx, tx)).def(agg.entity) ?? null, agg, existing ? (held ?? {}) : null, purged);
+        const tdef = (await orgSchema(ctx, tx)).def(agg.entity) ?? null;
+        const v = judgePurged(def, tdef, agg, existing ? (held ?? {}) : null, purged);
         if (v.kind === "drop") {
           results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
           // its journal, history, attachments and links in this push (they come after it) go with it
           purged.add(agg.id.toLowerCase());
           continue;
         }
+        if (v.kind === "stored" && existing) {
+          // the server's copy stands (the purge's own ending of it): nothing of the push, and the app takes the copy
+          if (tdef) await reviewPushed(tx, ctx.org.id, tdef, agg.id, v);
+          await stored(agg, def, existing.rev);
+          continue;
+        }
+        if (v.kind === "ended" && tdef) handBack = { v, tdef };
       }
       // a module's own rules for a pushed aggregate (the same rules its routes apply); the engine's for its rows
       const engineState: { prev?: Record<string, unknown> | null } = {};
@@ -348,7 +359,12 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         const r = await writeAggregate(tx, def, { ...agg, row: { ...agg.row, origin: input.device_id } }, ctx.org.id, "incoming-yields");
         if (def.engine) await afterEnginePush(tx, ctx, def, agg, engineState);
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
-        results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
+        if (handBack) {
+          // stored ended (switched off, retired or left unpublished, without the purged ids): the app takes the copy as
+          // the server stores it, and the owner reviews it
+          await reviewPushed(tx, ctx.org.id, handBack.tdef, agg.id, handBack.v);
+          await stored(agg, def, now?.rev ?? 0);
+        } else results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
         if (memberChange?.people) peopleMoved = true;
       } catch (e) {

@@ -12,7 +12,12 @@
 //   · a record the server has keeps what the server holds wherever the push names purged data (the purge cleared that
 //     pointer) and takes the push's other changes — never refused for it, so a person's offline edit of a real record
 //     that named demo data is not lost. A real record the purge removed because it depended on the pack is purged data
-//     itself: its push is answered like the pack's own rows.
+//     itself: its push is answered like the pack's own rows;
+//   · an allow-list, a scope, a «همه» audience criterion or a producer (refs.ts `judgeRestrictions`, the purge's own
+//     rule) left naming nobody but purged data would make a definition reach everyone or every record: a new one is
+//     stored ended — switched off, retired or left unpublished as the purge would end it (refs.ts `deadEnd`; one that
+//     can be neither is not stored) — and a stored one keeps the server's copy whole, nothing of the push written (the
+//     purge's own ending of it stands); either is handed back to the app as the server stores it, with a review line.
 // Every 1.1 Windows app already drops an outbox entry answered «skipped», so the answer needs no new sync protocol: the
 // outbox drains and nothing stays failed. A purge answer also carries `purged: true`, by which a 1.1.5 app drops its
 // local copy at once (an older one keeps it until its next full read, which the purge brings about).
@@ -22,7 +27,9 @@ import type { FieldDef, TableDef } from "@shared/model/types";
 import type { Queryable } from "../../db";
 import type { AggregateDef, WireAggregate } from "../../sync/registry";
 import { hasLedger, purgedAmong } from "./ledger";
-import { BASE_REFS, fieldRefs } from "./refs";
+import { BASE_REFS, deadEnd, fieldRefs, judgeRestrictions, type DeadEnd } from "./refs";
+import { reviewLine } from "./review";
+import { rowWords } from "./samples";
 
 /** The answer to a push of a row a purge removed. */
 export const PURGED_ROW = "این مورد دادهٔ نمایشیِ حذف‌شده است و به سرور برنمی‌گردد";
@@ -89,7 +96,17 @@ export type PurgedVerdict =
   /** nothing of it was purged (what names purged rows was dealt with in place) */
   | { kind: "write" }
   /** the row was purged, or a new row belongs to purged data: answered «skipped», the app drops it */
-  | { kind: "drop"; message: string };
+  | { kind: "drop"; message: string }
+  /**
+   * a stored definition whose allow-list, scope, audience or producer the push would leave naming only purged data:
+   * nothing of the push is written — the server's copy stands (the purge's own ending of it) and goes back to the app
+   */
+  | { kind: "stored"; what: string }
+  /**
+   * a new such definition: `wire.row` now ends it (`end`: switched off, retired, or left unpublished) without the
+   * purged ids; it is stored so and goes back to the app as the server stores it
+   */
+  | { kind: "ended"; what: string; end: DeadEnd };
 
 /** What the server holds of a stored record (its custom values: a pushed `custom` replaces them whole). */
 export interface StoredRecord {
@@ -120,6 +137,20 @@ export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireA
       if (is(v) || (Array.isArray(v) && v.some(is))) return belongs;
     }
     return WRITE;
+  }
+  // an allow-list, a scope, a «همه» audience criterion or a producer that would name only purged data: never stored
+  // widened (the purge's own rule, refs.ts `judgeRestrictions`)
+  const defined = new Set(def.fields.map((f) => f.name));
+  const restricted = judgeRestrictions(def.key, row, (id) => purged.has(id), (n) => defined.has(n));
+  let ended: PurgedVerdict | null = null;
+  if (restricted.dead) {
+    const what = [...new Set(restricted.notes)].join("؛ ");
+    if (stored) return { kind: "stored", what };
+    const end = deadEnd(def, row);
+    // one that can be neither switched off nor closed by its lifecycle would be removed by the purge: not stored
+    if (end.how === "remove") return belongs;
+    Object.assign(row, restricted.patch, end.patch);
+    ended = { kind: "ended", what: [what, ...(end.note ? [end.note] : [])].filter(Boolean).join("؛ "), end };
   }
   // what a new record cannot stand without is what the purge removes a real row for (purge.ts `derivedConds`): a parent
   // reference (refs.ts `fieldRefs`), its workspace, its author — and a required custom value, which emptied would leave
@@ -155,5 +186,24 @@ export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireA
     // a pointer of a new record: emptied
     holder[f.name] = null;
   }
-  return WRITE;
+  return ended ?? WRITE;
+}
+
+/**
+ * The review line of a definition the push filter ended or kept as the server holds it (`judgePurged`): its owner is
+ * told what came from a Windows app after the purge and why it is as it is now (./review.ts). After the write.
+ */
+export async function reviewPushed(q: Queryable, orgId: string, def: TableDef, id: string, v: Extract<PurgedVerdict, { kind: "stored" | "ended" }>): Promise<void> {
+  const row = await q.one<Record<string, unknown>>(`select * from ${def.table} where id = $1 and org_id = $2`, [id, orgId]);
+  const name = row ? await rowWords(q, def, row) : def.label;
+  const how = v.kind === "ended" ? v.end.how : null;
+  await reviewLine(
+    q,
+    orgId,
+    {
+      table: def.key, label: def.label, id, name, deactivated: how === "off", ...(how === "retire" ? { retired: true } : {}), ...(how === "state" && v.kind === "ended" ? { ended: v.end.state } : {}),
+      what: (v.kind === "stored" ? `ویرایشی که برنامهٔ ویندوز پس از حذف فرستاد نوشته نشد؛ ${v.what}` : `برنامهٔ ویندوز آن را پس از حذف فرستاد؛ ${v.what}`).slice(0, 400),
+    },
+    v.kind === "stored" ? "همان‌گونه که بود ماند" : undefined,
+  );
 }

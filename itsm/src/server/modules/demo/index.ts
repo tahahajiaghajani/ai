@@ -22,11 +22,11 @@ import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
 import { purgeDb } from "./access-bulk";
 import { installDemoLedger, reclaimLeftovers, recordPurged } from "./ledger";
 import {
-  DERIVED, computedSince, demoFiles, expandDerived, expandStep, keepRealTrail, newExpandCursor, newRemoveCursor, registryCounts, removeAccounts, removeFiles, removeRows,
+  DERIVED, computedSince, demoFiles, expandStep, keepRealTrail, newAccountsCursor, newExpandCursor, newRemoveCursor, registryCounts, removeAccounts, removeFiles, removeRows,
   removeStep, restoreComputed, restoreCounters, revertTouched, saveComputed, tablesInfo, unattributedReport,
-  type DeletedBucket, type ExpandCursor, type PurgeReport, type RefReport, type RemoveCursor, type ReroutedBucket, type Skipped, type TableInfo,
+  type AccountsCursor, type DeletedBucket, type ExpandCursor, type PurgeReport, type RefReport, type RemoveCursor, type ReroutedBucket, type Skipped, type TableInfo,
 } from "./purge";
-import { anchorStep, clearStep, newTableCursor, noNames, planNames, rerouteStep, retireStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
+import { anchorStep, clearStep, newTableCursor, noNames, planNames, rerouteStep, reviewStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
 import { systemCtx } from "../../engine";
 import { TRAIL_TABLE_NAMES } from "./refs";
 import { sampleWords } from "./samples";
@@ -255,7 +255,7 @@ export async function purgePreview(ctx: Ctx): Promise<PurgePreview> {
         const names = await planNames(tx, orgId);
         const st: StepState = { until, since, dry: true, cleaned: [], rerouted: new Map(), skipped: [] };
         const cleared = complete && (await clearStep(tx, sys, orgId, info, names, newTableCursor(), st));
-        if (cleared) await retireStuck(tx, sys, orgId, names, st);
+        if (cleared) await reviewStuck(tx, sys, orgId, names, st);
         const rerouted = cleared && (await rerouteStep(tx, sys, orgId, info, names, newTableCursor(), st));
         const anchored = rerouted && (await anchorStep(tx, sys, orgId, info, names, newTableCursor(), st));
         report.cleaned = st.cleaned;
@@ -450,11 +450,18 @@ const PURGE_LABELS: Record<string, string> = {
   finish: "پایان",
 };
 
-/** Where a phase of the purge is (each phase runs in steps that fit the web version's limits). */
+/**
+ * Where a phase of the purge is (each phase runs in steps that fit the web version's limits): the expand phase's parts,
+ * a derivation (`late`: what demo work or people added since the plan, at the remove and finish phases), the removal of
+ * the registry's rows (the remove phase; `sweep`: the finish phase's last pass), the accounts (the accounts phase;
+ * `people`: the finish phase's pass), a table's chunks (clear, reroute, anchors).
+ */
 type PurgeCursor =
-  | { step: "revert" | "trail" | "plan" }
-  | { step: "derive"; expand: ExpandCursor }
+  | { step: "revert" | "trail" | "plan" | "again" }
+  | { step: "derive" | "late"; expand: ExpandCursor }
   | ({ step: "remove"; stones: boolean } & RemoveCursor)
+  | ({ step: "sweep" } & RemoveCursor)
+  | ({ step: "accounts" | "people" } & AccountsCursor)
   | ({ step: "tables" } & TableCursor);
 
 /** A step of a phase: at most this long (the web version cuts a statement at 30 s and a request at 50 s). */
@@ -538,11 +545,13 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
           if (!done) return stay(tx, cur, { report });
           report.derived += cur.expand.total;
           cur = { step: "trail" };
+          if (Date.now() > until) return stay(tx, cur, { report });
         }
         if (cur.step === "trail") {
           // the trail of real records stays, whoever wrote it
           report.kept_trail = await keepRealTrail(tx, orgId, info, true);
           cur = { step: "plan" };
+          if (Date.now() > until) return stay(tx, cur, { report });
         }
         await planReport(tx, orgId, info, report);
         report.unattributed = pack.progress.saved_at ? await unattributedReport(tx, orgId, info, pack.progress.saved_at) : [];
@@ -561,7 +570,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         const cur = (pack.progress.cursor as TableCursor | null) ?? newTableCursor();
         const st = state();
         const done = await clearStep(tx, sys!, orgId, info, names, cur, st);
-        if (done) await retireStuck(tx, sys!, orgId, names, st);
+        if (done) await reviewStuck(tx, sys!, orgId, names, st);
         report.cleaned = st.cleaned;
         report.skipped = st.skipped;
         mergeRerouted(report, st.rerouted);
@@ -573,15 +582,20 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     if (phase === "remove") {
       await db.tx(async (tx) => {
-        let cur = pack.progress.cursor as ({ step: "remove"; stones: boolean } & RemoveCursor) | null;
+        const at = pack.progress.cursor as ({ step: "remove"; stones: boolean } & RemoveCursor) | { step: "late"; expand: ExpandCursor } | null;
         let files = (pack.progress.files ?? []) as string[];
-        if (!cur) {
-          // work demo jobs did meanwhile joins the registry; what derives from it too (the trail of real records stays)
-          report.derived += await expandDerived(tx, orgId, info, since);
+        let cur: { step: "remove"; stones: boolean } & RemoveCursor;
+        if (!at || at.step === "late") {
+          // work demo jobs did meanwhile joins the registry; what derives from it too (the trail of real records stays) —
+          // a derivation over every table, in steps like the expand phase's
+          const late = at ?? { step: "late" as const, expand: newExpandCursor() };
+          if (!(await expandStep(tx, orgId, info, late.expand, until, since))) return stay(tx, late, { report });
+          report.derived += late.expand.total;
           report.kept_trail = (report.kept_trail ?? 0) + (await keepRealTrail(tx, orgId, info, false));
           files = await demoFiles(tx, orgId);
           cur = { step: "remove", stones: await hasDevices(tx, orgId), ...newRemoveCursor() };
-        }
+          if (Date.now() > until) return stay(tx, cur, { report, files });
+        } else cur = at;
         const skipped = [...(report.skipped ?? [])];
         const done = await removeStep(tx, orgId, info, { tombstones: cur.stones }, cur, until, skipped);
         report.skipped = skipped;
@@ -611,8 +625,12 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     if (phase === "accounts") {
       await db.tx(async (tx) => {
-        report.accounts = await removeAccounts(tx, orgId, { tombstones: report.tombstones > 0 });
-        await setPhase(tx, "restore", { report });
+        // a chunk of accounts at a time (the large pack has thousands)
+        const cur = (pack.progress.cursor as ({ step: "accounts" } & AccountsCursor) | null) ?? { step: "accounts" as const, ...newAccountsCursor() };
+        const r = await removeAccounts(tx, orgId, { tombstones: report.tombstones > 0 }, cur, until);
+        report.accounts = { removed: r.removed, kept: r.kept };
+        if (r.done) await setPhase(tx, "restore", { report });
+        else await stay(tx, cur, { report });
       });
       return { again: 0 };
     }
@@ -625,21 +643,34 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
       });
       return { again: 0 };
     }
-    // finish: anything a demo job wrote while the purge ran goes too; then the audit line and the end of the pack
-    await db.tx(async (tx) => {
-      // the job queue ran on after the restore phase: what a computation made or changed since is put back once more
-      // (and its numbers freed); what it made joins the registry and goes below with what names it
-      const again = await restoreComputed(tx, orgId, info, pack.progress.computed ?? [], { tombstones: report.tombstones > 0 });
-      for (const [k, v] of Object.entries(again)) report.restored[k] = (report.restored[k] ?? 0) + v;
-      await restoreCounters(tx, orgId, pack.counters ?? {});
-      const late = await expandDerived(tx, orgId, info, since);
-      if (late) report.kept_trail = (report.kept_trail ?? 0) + (await keepRealTrail(tx, orgId, info, false));
-      const left = await tx.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1 and tbl <> 'sm_users'`, [orgId]);
-      // with tombstones: every registry row still live becomes one (rows a load chunk wrote after the remove phase too)
-      if (late || left?.n) {
-        await removeRows(tx, orgId, info, { tombstones: report.tombstones > 0 });
-        await removeAccounts(tx, orgId, { tombstones: report.tombstones > 0 });
+    // finish: anything a demo job wrote while the purge ran goes too; then the audit line and the end of the pack — in
+    // steps like the other phases (a derivation over every table, a pass over every registry row and account)
+    const ended = await db.tx(async (tx) => {
+      const stones = report.tombstones > 0;
+      let cur: PurgeCursor = (pack.progress.cursor as PurgeCursor | null) ?? { step: "again" };
+      if (cur.step === "again") {
+        // the job queue ran on after the restore phase: what a computation made or changed since is put back once more
+        // (and its numbers freed); what it made joins the registry and goes below with what names it
+        const again = await restoreComputed(tx, orgId, info, pack.progress.computed ?? [], { tombstones: stones });
+        for (const [k, v] of Object.entries(again)) report.restored[k] = (report.restored[k] ?? 0) + v;
+        await restoreCounters(tx, orgId, pack.counters ?? {});
+        cur = { step: "late", expand: newExpandCursor() };
+        if (Date.now() > until) return stay(tx, cur, { report });
       }
+      if (cur.step === "late") {
+        if (!(await expandStep(tx, orgId, info, cur.expand, until, since))) return stay(tx, cur, { report });
+        if (cur.expand.total) report.kept_trail = (report.kept_trail ?? 0) + (await keepRealTrail(tx, orgId, info, false));
+        cur = { step: "sweep", ...newRemoveCursor() };
+        if (Date.now() > until) return stay(tx, cur, { report });
+      }
+      if (cur.step === "sweep") {
+        // every registry row still there goes (with tombstones: becomes one) — rows a load chunk or a demo job wrote after
+        // the remove phase too; a row that could not go was reported by the remove phase, not again
+        if (!(await removeStep(tx, orgId, info, { tombstones: stones }, cur, until, []))) return stay(tx, cur, { report });
+        cur = { step: "people", ...newAccountsCursor() };
+        if (Date.now() > until) return stay(tx, cur, { report });
+      }
+      if (cur.step === "people" && !(await removeAccounts(tx, orgId, { tombstones: stones }, cur, until)).done) return stay(tx, cur, { report });
       // the ledger keeps the ids after the registry goes (the accounts removed too, the late rows)
       await recordPurged(tx, orgId);
       const sum = (xs: { rows: number }[] | undefined) => (xs ?? []).reduce((s, x) => s + x.rows, 0);
@@ -651,6 +682,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         cleaned: (report.cleaned ?? []).length,
         deactivated: (report.cleaned ?? []).filter((c) => c.deactivated).length,
         retired: (report.cleaned ?? []).filter((c) => c.retired).length,
+        ended: (report.cleaned ?? []).filter((c) => c.ended).length,
+        removed: (report.cleaned ?? []).filter((c) => c.removed).length,
         references: sum(report.rerouted),
         rerouted: (report.rerouted ?? []).reduce((s, x) => s + x.routed, 0),
         skipped: sum(report.skipped),
@@ -668,8 +701,11 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
       } else {
         await finalRemove(tx, orgId);
       }
+      return true;
     });
     forgetCaches(orgId);
+    // a step of the finish phase that stopped at its budget: the job goes on at once
+    if (ended !== true) return { again: 0 };
   });
 }
 
