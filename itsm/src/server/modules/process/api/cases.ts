@@ -22,7 +22,7 @@ import { CASE_OUTCOMES, CASE_STATES, TASK_ACTIONS, TASK_OUTCOMES } from "@shared
 import {
   formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, restartTargets, stepOutcomes, type ProcessGraph, type StepOutcome,
 } from "@shared/process/graph";
-import { stepStatuses, type NodeStatusView } from "@shared/process/status";
+import { stepStatuses, withUnstaffed, type NodeStatusView } from "@shared/process/status";
 import type { Ctx } from "../../../context";
 import { pgArray } from "../../../db";
 import { bad, notFound } from "../../../http/errors";
@@ -330,7 +330,8 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
       paused_at: iso(kase.paused_at), current_steps: kase.current_steps ?? [], confidential: kase.confidential === true, version: row.version,
     },
     graph,
-    statuses,
+    // a step that waits for people says so on the diagram, not «در جریان» (1.1.5)
+    statuses: withUnstaffed(statuses, Object.keys(waiting)),
     forms: version.forms,
     data,
     my_steps,

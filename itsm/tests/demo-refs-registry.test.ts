@@ -17,7 +17,7 @@ import { archivable, archiveTableOf } from "@server/engine/ddl";
 import { COMPUTED_TABLES } from "@server/modules/demo/purge";
 import {
   ABOUT_COLUMNS, FOREIGN_TEXT, ID_TEXT, JSON_FIELDS, PARENTS, PLATFORM_JSON_DERIVES, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_NONE,
-  PLATFORM_JSON_PRUNES, PLATFORM_KEPT, PRODUCER_REFS, RESTRICTION_SCALARS, RESTRICTION_SETS, SNAPSHOT_TABLES, TRAIL_TABLE_NAMES,
+  PLATFORM_JSON_PRUNES, PLATFORM_KEPT, PRODUCER_REFS, RESTRICTION_SCALARS, RESTRICTION_SETS, RESTRICTION_WORDS, SNAPSHOT_TABLES, TRAIL_TABLE_NAMES,
   actionsHandler, approvalLevelsHandler, fieldRefs, jsonHandler, processDraftHandler, pruneCond, pruneIds, pruneRules, recipientsHandler,
   type Gone,
 } from "@server/modules/demo/refs";
@@ -127,6 +127,8 @@ describe("the catalogue names only what exists (lists never rot)", () => {
     refs("RESTRICTION_SCALARS", RESTRICTION_SCALARS);
     refs("PRODUCER_REFS", PRODUCER_REFS);
     refs("RESTRICTION_SETS", Object.fromEntries(Object.entries(RESTRICTION_SETS).map(([t, s]) => [t, s.flat()])));
+    // a list's own review words name a list the purge cleans
+    for (const t of Object.keys(RESTRICTION_WORDS)) if (!RESTRICTION_SETS[t]) stale.push(`RESTRICTION_WORDS ${t}`);
     for (const [t, m] of Object.entries(ID_TEXT)) for (const n of Object.keys(m)) if (family(t, n) !== "text") stale.push(`ID_TEXT ${t}.${n}`);
     for (const k of FOREIGN_TEXT) {
       const [t, n] = k.split(".");
@@ -304,6 +306,14 @@ describe("lists that empty never mean «everyone»", () => {
     expect(role("approval", "approver_id")).toBe("approval");
     expect(role("assignment_rule", "group_id")).toBe("producer");
     expect(role("process_case", "process_id")).toBe("parent");
+    // the ledgers' self-references: a reversal exists for the entry it reverses (it goes with it); a cost type's parent
+    // is a tree (the child stays, top level); an allocation rule's cost types are its source, all of them when empty
+    expect(role("cost_entry", "reversal_of")).toBe("parent");
+    expect(role("stock_movement", "reversal_of")).toBe("parent");
+    expect(role("cost_type", "parent_id")).toBe("pointer");
+    expect(role("allocation_rule", "cost_types")).toBe("restriction");
+    expect(role("allocation_rule", "source_cost_center_id")).toBe("parent");
+    expect(role("allocation_result", "run_id")).toBe("parent");
     // a published version is a snapshot: never rewritten
     expect(fieldRefs(defs.get("process_version")!).every((r) => r.role === "snapshot")).toBe(true);
     // conditions without a declared decision are still pruned by meaning; snapshots are kept

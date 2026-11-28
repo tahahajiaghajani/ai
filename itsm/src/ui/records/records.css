@@ -63,6 +63,9 @@
   .rk-opt-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rk-opt-s { font-size: 12px; line-height: 16px; color: var(--ds-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rk-seg { max-inline-size: 100%; }
+  /* a segmented choice wider than its field wraps its options onto more rows instead of running out of the field —
+     also on a phone, where the kit lets other segmented controls scroll inside themselves (components/kit.css) */
+  .rk-seg.ant-segmented .ant-segmented-group { flex-wrap: wrap; inline-size: auto; }
   .rk-seg .rk-tag { background: none; padding-inline: 0; }
   .rk-switch { display: inline-flex; align-items: center; gap: 8px; min-block-size: var(--ds-control-h); }
   .rk-dt { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 6px; inline-size: 100%; }

@@ -16,9 +16,10 @@
 // A second case opened Thursday 14:00, after the half day, counts from Saturday 08:00: reminders from 10:00, the
 // escalation at 13:00, the deadline at 16:00.
 // The timer runs at the moments below (the clock moved there, then the organisation's process.timer); the reminders
-// a run sends are read per case from the expert's bells. BH1: the reminders count calendar time today
-// (src/server/modules/process/timers/timer.ts, `remind_every` in roundTimersIn and roundNextAt), so the expert is
-// reminded every two hours through the evening, the holiday and Friday; that test fails until they count working time.
+// a run sends are read per case from the expert's bells. BH1: the reminders counted calendar time
+// (src/server/modules/process/timers/timer.ts, `remind_every` in roundTimersIn and roundNextAt), so the expert was
+// reminded every two hours through the evening, the holiday and Friday; since 1.1.5 they count on the step's clock,
+// as its deadline and escalation do.
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { e, item, n, section, tab, world, type Draft, type EditionRef, type Scn } from "./harness";
 

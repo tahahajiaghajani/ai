@@ -34,7 +34,7 @@ import { rerunApprovalRulesIn } from "../sla/approvals";
 import { reresolveRoundIn } from "../process/reresolve";
 import { loadVersionInfo, lockCase, stepWaitKey, type CaseRow, type VersionInfo } from "../process/engine/store";
 import {
-  BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, RESTRICTION_SCALARS, RESTRICTION_SETS, PRODUCER_REFS, SNAPSHOT_TABLES,
+  AUDIENCE_WORDS, BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, RESTRICTION_SCALARS, RESTRICTION_SETS, RESTRICTION_WORDS, PRODUCER_REFS, SNAPSHOT_TABLES,
   fieldRefs, jsonHandler, pruneIds, pruneRules, routingFields, uuidsIn, type Gone, type FieldRef,
 } from "./refs";
 import { failReason, inSavepoint, type CleanedDefinition, type ReroutedBucket, type Skipped, type TableInfo } from "./purge";
@@ -329,11 +329,12 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
               touched = true;
             }
           }
-          if (touched) notes.push("مخاطبان نمایشی برداشته شدند");
-          // an audience left with nobody named would mean everyone: the row ends instead (never widened)
+          const words = RESTRICTION_WORDS[def.key] ?? AUDIENCE_WORDS;
+          if (touched) notes.push(words.cut);
+          // a list left with nobody (nothing) named would mean everyone (everything): the row ends instead (never widened)
           if (touched && before > 0 && left === 0) {
             dead = true;
-            notes.push("مخاطبان آن فقط دادهٔ نمایشی بودند");
+            notes.push(words.only);
           }
         }
         for (const n of scalars) {

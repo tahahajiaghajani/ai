@@ -13,6 +13,7 @@ import type { Queryable } from "../../db";
 import { pgArray } from "../../db";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { ident } from "../../db/sql";
+import { inDemoScope } from "../../db/scope";
 import { archivable, archiveTableOf } from "../../engine/ddl";
 
 /** Days a purged id is kept at least. */
@@ -188,11 +189,25 @@ let installed = false;
 export function installDemoLedger(): void {
   if (installed) return;
   installed = true;
-  registerJobHandler("demo.ledger", async (job, jctx) => {
-    if (!job.org_id) return;
-    const r = await cleanLedger((jctx.cfg as JobConfig).db, job.org_id);
-    // a full batch: the next one soon; rows still held back by an app (or younger than the shortest stay): a day later
-    if (r.removed >= CLEAN_BATCH) return { again: 60_000 };
-    if (r.left) return { again: DAY };
-  });
+  registerJobHandler(
+    "demo.ledger",
+    async (job, jctx) => {
+      if (!job.org_id) return;
+      const r = await cleanLedger((jctx.cfg as JobConfig).db, job.org_id);
+      // a full batch: the next one soon; rows still held back by an app (or younger than the shortest stay): a day later
+      if (r.removed >= CLEAN_BATCH) return { again: 60_000 };
+      if (r.left) return { again: DAY };
+    },
+    {
+      // its worker stopped (or it failed) at every attempt in a row: the cleanup looks again a day later while ids are
+      // left — otherwise only the organisation's next purge would queue it, and the ledger would outstay its days
+      onExhausted: async (job, ectx) => {
+        const orgId = job.org_id;
+        if (!orgId) return;
+        await inDemoScope(null, async () => {
+          if (await hasLedger(ectx.db, orgId)) await enqueue(ectx.db, { kind: "demo.ledger", orgId, payload: {}, dedupeKey: "demo.ledger", delayMs: DAY, maxAttempts: 100 });
+        });
+      },
+    },
+  );
 }

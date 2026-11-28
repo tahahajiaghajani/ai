@@ -294,6 +294,18 @@ export function caseStateView(state: string, pausedAt?: string | null): { label:
 
 export const isOpenCase = (state: string): boolean => state === "active" || state === "waiting" || state === "attention";
 
+/**
+ * The process form's columns follow its own width, not the window's (user.css: a container query on `.wfu-form`):
+ * narrower than `one` px — the case page's side panel, a phone, a dialog — every field takes the whole row; narrower
+ * than `two` px at most two fields share a row; wider, each field keeps the span its form gives it (24 columns). The
+ * record pages' rules by the window (records.css) still apply on top.
+ */
+export const FORM_COLUMNS = { one: 560, two: 860 } as const;
+
+/** The columns (of 24) a field of `span` takes in a process form `width` px wide (see FORM_COLUMNS). */
+export const formFieldSpan = (span: number, width: number): number =>
+  width < FORM_COLUMNS.one ? 24 : width < FORM_COLUMNS.two ? Math.max(12, span) : span;
+
 export type ChannelState = "done" | "current" | "mine" | "future";
 
 /** The state channel of the header: the case's form steps in order (those passed by left out), then «پایان». */
@@ -303,7 +315,7 @@ export function stateChannel(graph: ProcessGraph, statuses: Record<string, NodeS
     if (n.type !== "form_step") continue;
     const st = statuses?.[n.id]?.status;
     if (st === "skipped") continue;
-    const state: ChannelState = st === "done" || st === "mine_done" ? "done" : st === "mine_open" ? "mine" : st === "active" ? "current" : "future";
+    const state: ChannelState = st === "done" || st === "mine_done" ? "done" : st === "mine_open" ? "mine" : st === "active" || st === "unstaffed" ? "current" : "future";
     out.push({ key: n.id, label: processNodeLabel(n), state });
   }
   out.push({ key: "__end", label: "پایان", state: finished ? "done" : "future" });
@@ -318,7 +330,7 @@ export function takenFromStatuses(graph: ProcessGraph, statuses: Record<string, 
   const out = new Set<string>();
   if (!statuses) return out;
   const passed = (id: string) => ["done", "mine_done"].includes(statuses[id]?.status ?? "");
-  const reached = (id: string) => ["done", "mine_done", "active", "mine_open"].includes(statuses[id]?.status ?? "");
+  const reached = (id: string) => ["done", "mine_done", "active", "unstaffed", "mine_open"].includes(statuses[id]?.status ?? "");
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   for (const e of forwardEdges(graph)) {
     if (!passed(e.source) || !reached(e.target)) continue;

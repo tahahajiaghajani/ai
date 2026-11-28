@@ -33,7 +33,7 @@ import {
   joinPatch, liveProblems, mainPort, moveKey, nameProblem, newCaseKey, newEscalation, newStepOf, paletteItem, patchConfig, phoneNotes, pillField, portRows, previewBlocked, previewNote,
   previewSteps, previewSummary, problemGroups, problemTarget, problemsText, processForms, quorumPatch, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch,
   setAction, setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersNote, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems,
-  titleFields, titleSample, unitFromRial, versionMeta, versionTitle, waitsInBusinessTime, wireRejection, type FormInfo,
+  titleFields, titleSample, unitFromRial, versionMeta, versionTitle, waitsInBusinessTime, keepsTime, wireRejection, type FormInfo,
 } from "../src/ui/modules/workflows/admin/process/model";
 import type { OrgApi } from "../src/ui/lib/api";
 import type { Client } from "./helpers";
@@ -328,6 +328,15 @@ describe("the palette and adding steps", () => {
     expect(waitsInBusinessTime({ mode: "duration", duration: { amount: 1, unit: "day" } })).toBe(false);
     expect(waitsInBusinessTime({ business: false })).toBe(false);
     expect(waitsInBusinessTime(null)).toBe(false);
+  });
+
+  it("1.1.5: a step's «به وقت کاری» is offered whenever it keeps a time — a deadline, reminders or escalations: it counts all three", () => {
+    expect(keepsTime({ due: { amount: 8, unit: "hour" } })).toBe(true);
+    // reminders alone count working time too (process.timer, BH1): the switch is there to make them calendar time
+    expect(keepsTime({ remind_every: { amount: 2, unit: "hour" } })).toBe(true);
+    expect(keepsTime({ escalate: [{ after: { amount: 5, unit: "hour" }, action: "notify", to: "managers" }] })).toBe(true);
+    expect(keepsTime({})).toBe(false);
+    expect(keepsTime({ escalate: [] })).toBe(false);
   });
 
   it("«قاعدهٔ تأیید» keeps its number only within its kind: a share never becomes a count of people, nor a count a share", () => {

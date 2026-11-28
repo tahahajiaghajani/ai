@@ -773,6 +773,10 @@ export const PARENTS: Record<string, readonly string[]> = {
   request_task: ["request_id"],
   // an approval round a demo rule planned
   approval: ["rule_id"],
+  // a reversal exists for the entry it reverses (both ledgers are corrected by reversal only): a real reversal of a
+  // demo entry goes with it — never a negative entry left reversing nothing, or a stock movement undoing nothing
+  cost_entry: ["reversal_of"],
+  stock_movement: ["reversal_of"],
 };
 
 /** Text columns that hold ids (`string` fields), with their role. */
@@ -832,7 +836,16 @@ export const RESTRICTION_SETS: Record<string, readonly (readonly string[])[]> = 
   survey: [["aud_units", "aud_groups", "aud_locations", "aud_users"]],
   catalog: [["available_for"]],
   catalog_item: [["available_for"]],
+  // the cost types an allocation rule shares of its centre, every cost of it when none is named: a rule that named only
+  // the pack's types ends (it never comes to share the whole centre)
+  allocation_rule: [["cost_types"]],
 };
+
+/** What a cleaned row's review line says of such a list: some entries went / only the pack's were named (default: an audience). */
+export const RESTRICTION_WORDS: Record<string, { cut: string; only: string }> = {
+  allocation_rule: { cut: "نوع‌های هزینهٔ نمایشی برداشته شدند", only: "نوع‌های هزینهٔ آن فقط دادهٔ نمایشی بودند و بی آن‌ها همهٔ هزینه‌های مرکز را تسهیم می‌کرد" },
+};
+export const AUDIENCE_WORDS = { cut: "مخاطبان نمایشی برداشته شدند", only: "مخاطبان آن فقط دادهٔ نمایشی بودند" };
 
 /** Scopes where an empty value means every record: a definition scoped to a removed row ends (never applies org-wide). */
 export const RESTRICTION_SCALARS: Record<string, readonly string[]> = {

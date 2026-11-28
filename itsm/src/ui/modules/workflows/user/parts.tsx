@@ -5,7 +5,8 @@
 //     with its reason and «تلاش دوباره», never the empty list's words);
 //   · the process form: a version's form laid out with my rights — hidden fields left out, read-only ones as values,
 //     required ones marked, «نمایش وقتی…» applied as values change, amounts typed in the organisation's unit, the
-//     files of a «پیوست» field kept here until they are sent with the submission;
+//     files of a «پیوست» field kept here until they are sent with the submission; its columns follow its own width
+//     (a container query, ./model.ts FORM_COLUMNS), so the case page's side panel shows one field to a row;
 //   · the values of a case by its forms' sections (read-only);
 //   · a «پیوست» value by its files' names (the case's attachments I may open, F4b's `filterSide`), each a link that
 //     opens the file — on the case's «داده‌ها», in «آنچه پیش‌تر ثبت شده» and in the step form.
@@ -208,7 +209,8 @@ export function ProcessForm(p: ProcessFormProps) {
   const hrefOf = (fid: string) => (fid.startsWith("local-") ? (p.local?.url(fid) ?? "") : attachmentUrl(orgId, fid));
   if (!view.tabs.length) return <p className="rk-hint">در این مرحله فیلدی برای شما نیست.</p>;
   const body = (tab: (typeof view.tabs)[number]) => (
-    <div className="rk-form">
+    // `wfu-form`: its columns follow its own width (user.css, FORM_COLUMNS) — one to a row in the case page's side panel
+    <div className="rk-form wfu-form">
       {tab.sections.map((sec, si) => (
         <section key={si} className="rk-sec" aria-label={sec.label ?? undefined}>
           {sec.label ? <h3 className="rk-sec-t">{sec.label}</h3> : null}
