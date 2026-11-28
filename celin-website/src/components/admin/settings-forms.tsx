@@ -1,13 +1,18 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { resetSettingsGroup, saveAnnouncement, saveContact, saveEmail, saveNotify, savePro, saveSeo, saveShop, saveSms, testEmail, testNotify, testSms } from "@/app/actions/admin";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { resetSettingsGroup, saveAnnouncement, saveContact, saveEmail, saveNotify, savePro, saveSale, saveSeo, saveShop, saveSms, testEmail, testNotify, testSms } from "@/app/actions/admin";
 import { DaysPicker } from "@/components/admin/pro-code-dialog";
 import { Badge, Button, ConfirmButton, Field, Input, MoneyInput, Select, Textarea, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 import type { Result } from "@/lib/action";
-import { num } from "@/lib/format";
-import type { AnnouncementSettings, ContactSettings, NotifyChannel, ProSettings, SeoSettings, ShopSettings, SmsProvider } from "@/lib/settings-types";
+import { common } from "@/content/copy/common";
+import { formatDate, formatPct, latinDigits, num } from "@/lib/format";
+import { formatJalaliDay, parseJalali, tehranDayEnd, tehranDayStart, toJalali } from "@/lib/jalali";
+import { offPct } from "@/lib/pricing";
+import { CUSTOM_START, HEX, inkFor, saleLook, saleState, TONE_CLASS, TONE_LABEL } from "@/lib/sale";
+import { SALE_TONES, type AnnouncementSettings, type ContactSettings, type NotifyChannel, type ProSettings, type SaleSettings, type SeoSettings, type ShopSettings, type SmsProvider } from "@/lib/settings-types";
+import { SaleBarView } from "@/components/site/sale-bar";
 
 /** Client-safe view of the secret groups: never the encrypted values, only whether one is stored. */
 export interface NotifyView {
@@ -54,7 +59,7 @@ function SaveButton({ pending, onClick }: { pending: boolean; onClick: () => voi
   );
 }
 
-function ResetButton({ group }: { group: "contact" | "announcement" | "shop" | "pro" | "seo" }) {
+function ResetButton({ group }: { group: "contact" | "announcement" | "sale" | "shop" | "pro" | "seo" }) {
   const { pending, run } = useAction();
   return (
     <ConfirmButton variant="ghost" icon="refresh" pending={pending} size="md" confirmLabel="بازنشانی؟ دوباره بزنید" onConfirm={() => run(() => resetSettingsGroup({ key: group }))}>
@@ -202,6 +207,161 @@ export function AnnouncementForm({ initial }: { initial: AnnouncementSettings })
   );
 }
 
+// ------------------------------------------------------------------ special-day discount
+
+/** A stored instant as the form's day: the day it starts, or (for the end, which is exclusive) the last day. */
+const dayOf = (iso: string, end: boolean) => {
+  const t = iso ? Date.parse(iso) : Number.NaN;
+  return Number.isFinite(t) ? formatJalaliDay(toJalali(end ? t - 1 : t), "fa") : "";
+};
+
+/** The form's day → the instant (start of the day, or the first moment after it); null = empty; NaN = not a day. */
+function dayTime(v: string, end: boolean): number | null {
+  if (!v.trim()) return null;
+  const d = parseJalali(v);
+  const t = d ? (end ? tehranDayEnd(d.jy, d.jm, d.jd) : tehranDayStart(d.jy, d.jm, d.jd)) : null;
+  return t ?? Number.NaN;
+}
+
+export function SaleForm({ initial }: { initial: SaleSettings }) {
+  const { f, set, input } = useForm({ ...initial, pct: String(initial.pct), from: dayOf(initial.from, false), until: dayOf(initial.until, true) });
+  const { pending, run } = useAction();
+  // the state badge reads the clock after mounting (the page is rendered on the server first)
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), []);
+  const pct = Math.floor(Number(latinDigits(f.pct))) || 0;
+  const from = dayTime(f.from, false);
+  const until = dayTime(f.until, true);
+  const draft: SaleSettings = {
+    ...f,
+    pct,
+    color: f.tone === "custom" ? f.color : "",
+    from: from && Number.isFinite(from) ? new Date(from).toISOString() : "",
+    until: until && Number.isFinite(until) ? new Date(until).toISOString() : "",
+  };
+  const state = now === null ? null : saleState(draft, now);
+  const custom = f.tone === "custom";
+  const ink = custom && HEX.test(f.color) ? inkFor(f.color) : null;
+  const when = (t: number | null, end: boolean) =>
+    t === null ? undefined : Number.isNaN(t) ? undefined : end ? `تا پایان ${formatDate(new Date(t - 1).toISOString(), "fa")} (به وقت تهران)` : `از آغاز ${formatDate(new Date(t).toISOString(), "fa")} (به وقت تهران)`;
+  const badge =
+    state === "live" ? <Badge tone="success">در حال اجرا</Badge>
+    : state === "soon" ? <Badge tone="gold">{`شروع: ${formatDate(draft.from, "fa")}`}</Badge>
+    : state === "over" ? <Badge tone="warning">پایان یافته</Badge>
+    : state === "off" ? <Badge>خاموش</Badge>
+    : null;
+  return (
+    <Section
+      id="sale"
+      title="نوار تخفیف روزهای خاص"
+      footer={
+        <>
+          <ResetButton group="sale" />
+          <SaveButton pending={pending} onClick={() => run(() => saveSale({ ...f, pct }))} />
+        </>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+        <span>با این تنظیمات:</span>
+        {badge}
+      </div>
+      <Toggle
+        checked={f.enabled}
+        onChange={set("enabled")}
+        label="نمایش نوار و اعمال تخفیف"
+        hint="تا روشن است و در بازه‌ی تاریخ، نوار جای نوار اطلاعیه را می‌گیرد و درصد تخفیف روی قیمت هر قطعه، پس از تخفیف تعداد، در سبد و فاکتور اعمال می‌شود."
+      />
+      <div className="grid gap-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
+        <Field label="درصد تخفیف" hint="۱ تا ۹۰؛ روی قیمت هر قطعه، پس از تخفیف تعداد.">
+          <Input value={num(f.pct, "fa")} onChange={(e) => set("pct")(latinDigits(e.target.value).replace(/\D/g, "").slice(0, 2))} inputMode="numeric" dir="ltr" className="max-w-24 text-start" aria-label="درصد تخفیف" />
+        </Field>
+        <Toggle checked={f.pro} onChange={set("pro")} label="حساب‌های Pro هم این تخفیف را بگیرند" hint="روشن باشد، حساب‌های Pro هم زیر قیمت عمده خرید می‌کنند." />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="عنوان (فارسی)" hint="مثلاً «جشن یلدا»؛ خالی بماند، «تخفیف روزهای خاص» نوشته می‌شود.">
+          <Input value={f.title_fa} onChange={input("title_fa")} maxLength={60} />
+        </Field>
+        <Field label="عنوان (انگلیسی)">
+          <Input value={f.title_en} onChange={input("title_en")} maxLength={60} dir="ltr" className="text-start" />
+        </Field>
+        <Field label="توضیح (فارسی)" hint="یک خط کوتاه؛ روی گوشی دیده نمی‌شود.">
+          <Input value={f.text_fa} onChange={input("text_fa")} maxLength={160} />
+        </Field>
+        <Field label="توضیح (انگلیسی)">
+          <Input value={f.text_en} onChange={input("text_en")} maxLength={160} dir="ltr" className="text-start" />
+        </Field>
+      </div>
+      <div>
+        <div className="mb-2 text-xs font-medium text-ink-2">رنگ نوار</div>
+        <div role="radiogroup" aria-label="رنگ نوار" className="flex flex-wrap items-center gap-2">
+          {SALE_TONES.filter((t) => t !== "custom").map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="radio"
+              aria-checked={f.tone === t}
+              onClick={() => set("tone")(t)}
+              className={`h-9 rounded-sm border px-3 text-xs ${TONE_CLASS[t as Exclude<typeof t, "custom">]} ${f.tone === t ? "outline outline-2 outline-offset-2 outline-ink" : ""}`}
+            >
+              {TONE_LABEL[t]}
+            </button>
+          ))}
+          <label
+            className={`relative inline-flex h-9 cursor-pointer items-center gap-2 rounded-sm border border-line-strong bg-white px-3 text-xs text-ink-2 focus-within:outline focus-within:outline-1 focus-within:outline-gold ${custom ? "outline outline-2 outline-offset-2 outline-ink" : ""}`}
+          >
+            {/* the admin's own colour (the only raw colour here is the picker's starting point) */}
+            <input
+              type="color"
+              value={HEX.test(f.color) ? f.color : CUSTOM_START}
+              onChange={(e) => {
+                set("color")(e.target.value.toLowerCase());
+                set("tone")("custom");
+              }}
+              onClick={() => set("tone")("custom")}
+              className="absolute inset-0 size-full cursor-pointer opacity-0"
+              aria-label={TONE_LABEL.custom}
+            />
+            <span aria-hidden className="size-4 rounded-full border border-line-strong bg-[var(--sale-bg)]" style={{ "--sale-bg": HEX.test(f.color) ? f.color : CUSTOM_START } as CSSProperties} />
+            {TONE_LABEL.custom}
+            {custom && HEX.test(f.color) && <span className="ltr font-mono text-muted">{f.color}</span>}
+          </label>
+        </div>
+        {ink && (
+          <p className={`mt-2 text-xs leading-5 ${ink.ratio < 4.5 ? "text-danger" : "text-muted"}`}>
+            {ink.ratio < 4.5
+              ? `کنتراست نوشته روی این رنگ ${num(ink.ratio.toFixed(1), "fa")} به ۱ است و خوانا نیست (دست‌کم ۴٫۵ لازم است)؛ رنگی تیره‌تر یا روشن‌تر انتخاب کنید.`
+              : `نوشته ${ink.ink === "dark" ? "تیره" : "روشن"} روی این رنگ؛ کنتراست ${num(ink.ratio.toFixed(1), "fa")} به ۱.`}
+          </p>
+        )}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="از روز (اختیاری)" error={Number.isNaN(from) ? "این روز در تقویم نیست؛ مثل ۱۴۰۵/۰۹/۳۰ بنویسید." : undefined} hint={when(from, false) ?? "خالی: از همین حالا."}>
+          <Input value={f.from} onChange={input("from")} dir="ltr" inputMode="numeric" className="text-start" placeholder="۱۴۰۵/۰۹/۳۰" maxLength={12} />
+        </Field>
+        <Field
+          label="تا پایان روز (اختیاری)"
+          error={Number.isNaN(until) ? "این روز در تقویم نیست؛ مثل ۱۴۰۵/۱۰/۰۲ بنویسید." : from !== null && until !== null && until <= from ? "روز پایان نباید پیش از روز شروع باشد." : undefined}
+          hint={when(until, true) ?? "خالی: تا وقتی خاموشش کنید."}
+        >
+          <Input value={f.until} onChange={input("until")} dir="ltr" inputMode="numeric" className="text-start" placeholder="۱۴۰۵/۱۰/۰۲" maxLength={12} />
+        </Field>
+      </div>
+      <Field label="لینک (اختیاری)" hint="نشانی داخل سایت مثل /shop یا لینک کامل با https.">
+        <Input value={f.link} onChange={input("link")} dir="ltr" className="text-start" placeholder="/shop" />
+      </Field>
+      <div>
+        <div className="mb-2 text-xs font-medium text-ink-2">پیش‌نمایش</div>
+        <div className="space-y-2 border border-line bg-ground p-2">
+          <SaleBarView lang="fa" bar={saleLook(draft, "fa", common.fa.sale)} preview />
+          <div dir="ltr">
+            <SaleBarView lang="en" bar={saleLook(draft, "en", common.en.sale)} preview />
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 // ------------------------------------------------------------------ shop
 
 export function ShopForm({ initial }: { initial: ShopSettings }) {
@@ -293,6 +453,7 @@ function PriceLadder({ f, set }: { f: ProSettings; set: <K extends keyof ProSett
               <span>قطعه:</span>
               <Input value={String(s.pct)} onChange={(e) => step(i, "pct", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${num(i + 1, "fa")}: درصد`} />
               <span>درصد</span>
+              {offPct(f.memberPct, s.pct) > 0 && <span className="text-xs text-muted">(برای عضو {formatPct(offPct(f.memberPct, s.pct), "fa")} تخفیف روی کل فاکتور)</span>}
               <Button variant="ghost" size="sm" icon="trash" onClick={() => set("steps")(f.steps.filter((_, j) => j !== i))} aria-label={`حذف پله‌ی ${num(i + 1, "fa")}`} />
             </div>
           ))}

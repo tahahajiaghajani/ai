@@ -5,6 +5,8 @@ import { getSlots, slotText } from "@/lib/slots";
 import { t, type Lang } from "@/lib/i18n";
 import { common } from "@/content/copy/common";
 import { Announcement } from "@/components/site/announcement";
+import { SaleBar } from "@/components/site/sale-bar";
+import { saleBar } from "@/lib/sale";
 import { Footer, ServicesStrip } from "@/components/site/footer";
 import { Header, type MenuData } from "@/components/site/header";
 import { RevealObserver } from "@/components/site/reveal";
@@ -25,12 +27,15 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
     promo: promo ? { media: promo.media, title: slotText(promo, "title", lang), cta: slotText(promo, "cta", lang), href: slotText(promo, "href", lang) || "/shop" } : null,
   };
   const suggestions = searchSuggestions(catalog, lang);
+  // the special-day discount bar: words, percentage, colour and window only (static; the browser decides showing it)
+  const sale = saleBar(settings.sale, lang, Date.now(), common[lang].sale);
   return (
     <>
       {/* the first Tab stop of every page */}
       <a href="#main" className="sr-only z-[60] bg-ink text-bone focus:not-sr-only focus:fixed focus:top-2 focus:start-2 focus:px-4 focus:py-2">
         {common[lang].skip}
       </a>
+      {sale && <SaleBar lang={lang} bar={sale} />}
       <Announcement lang={lang} a={settings.announcement} />
       <Header lang={lang} menu={menu} />
       <div id="main" tabIndex={-1} className="outline-none">

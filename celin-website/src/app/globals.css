@@ -1040,8 +1040,22 @@ html[data-motion="reduced"].js .fx-unveil .fx-frame {
 }
 }
 
-/* full-height heroes leave room for the announcement bar above the header */
-html:has([data-announcement]) {
+/*
+ * The special-day discount bar (src/components/site/sale-bar.tsx) takes the announcement's place while it runs: the
+ * browser's clock decides (html[data-sale], set before the first paint); without JS, whether the page was built
+ * inside the window (data-live). One 2rem bar at most.
+ */
+html[data-sale="off"] [data-sale-bar],
+html:not([data-sale]) [data-sale-bar]:not([data-live]),
+html[data-sale="on"]:has([data-sale-bar]) [data-announcement],
+html:not([data-sale]):has([data-sale-bar][data-live]) [data-announcement] {
+  display: none;
+}
+
+/* full-height heroes leave room for the announcement (or sale) bar above the header */
+html:has([data-announcement]),
+html[data-sale="on"]:has([data-sale-bar]),
+html:not([data-sale]):has([data-sale-bar][data-live]) {
   --announce-h: 2rem;
 }
 

@@ -4,11 +4,12 @@ import { decrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { getSettingsFresh } from "@/lib/settings";
 import { DbMissing, Empty, PageHeader } from "@/components/admin/ui";
-import { AnnouncementForm, ContactForm, EmailForm, NotifyForm, ProForm, SeoForm, ShopForm, SmsForm } from "@/components/admin/settings-forms";
+import { AnnouncementForm, ContactForm, EmailForm, NotifyForm, ProForm, SaleForm, SeoForm, ShopForm, SmsForm } from "@/components/admin/settings-forms";
 
 const NAV = [
   ["contact", "تماس"],
   ["announcement", "اطلاعیه"],
+  ["sale", "تخفیف روزهای خاص"],
   ["shop", "سفارش"],
   ["pro", "عضویت و Pro"],
   ["notify", "اعلان مدیر"],
@@ -76,6 +77,7 @@ export default async function SettingsPage() {
       <div className="space-y-6">
         <ContactForm key={k(s.contact)} initial={s.contact} />
         <AnnouncementForm key={k(s.announcement)} initial={s.announcement} />
+        <SaleForm key={k(s.sale)} initial={s.sale} />
         <ShopForm key={k(s.shop)} initial={s.shop} />
         <ProForm key={k(s.pro)} initial={s.pro} />
         <NotifyForm key={k(notify)} initial={notify} />

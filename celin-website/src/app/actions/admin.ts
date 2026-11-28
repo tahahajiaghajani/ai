@@ -10,14 +10,16 @@ import { cleanKey, guard } from "@/lib/admin-action";
 import { encrypt, hashIp } from "@/lib/crypto";
 import { db, isMissingColumn, UserError } from "@/lib/db";
 import { sendEmail, mailHtml } from "@/lib/email";
-import { latinDigits, normalizePhone } from "@/lib/format";
+import { formatDate, latinDigits, normalizePhone } from "@/lib/format";
+import { parseJalali, tehranDayEnd, tehranDayStart } from "@/lib/jalali";
 import { notifyTeam } from "@/lib/notify";
 import { proStatus } from "@/lib/pro";
 import { cleanSteps, DEFAULT_MEMBER_PCT, DEFAULT_PRO_DAYS, DEFAULT_PRO_THRESHOLD, MAX_PCT, type PriceStep } from "@/lib/pricing";
 import { allow, limited } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
-import { DEFAULT_SETTINGS, type NotifyChannel, type SmsProvider } from "@/lib/settings-types";
+import { DEFAULT_SETTINGS, SALE_TONES, type NotifyChannel, type SaleTone, type SmsProvider } from "@/lib/settings-types";
+import { HEX, saleState } from "@/lib/sale";
 import { resetSlot, saveSlot } from "@/lib/slots";
 import { createVideoUpload, finishVideoUpload, pruneVideos } from "@/lib/admin-video";
 import type { Video } from "@/lib/video";
@@ -176,14 +178,72 @@ export async function saveContact(input: Record<string, unknown>): Promise<Resul
   });
 }
 
+/** A bar's link: a page of this site ("/…", never "//…") or https://, or "" — anything else is refused with a message. */
+function siteLink(v: unknown, label: string): string {
+  const link = text(v, 300);
+  if (link && !link.startsWith("/") && !/^https:\/\//i.test(link)) throw new UserError(`لینک ${label} باید با / (صفحه‌ای از همین سایت) یا https:// شروع شود.`);
+  if (/^\/[/\\]/.test(link)) throw new UserError(`لینک ${label} باید با یک / یا https:// شروع شود.`);
+  return link;
+}
+
 export async function saveAnnouncement(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    const link = text(input.link, 300);
-    if (link && !link.startsWith("/") && !/^https:\/\//i.test(link)) throw new UserError("لینک نوار اطلاعیه باید با / (صفحه‌ای از همین سایت) یا https:// شروع شود.");
-    if (/^\/[/\\]/.test(link)) throw new UserError("لینک نوار اطلاعیه باید با یک / یا https:// شروع شود.");
+    const link = siteLink(input.link, "نوار اطلاعیه");
     await saveSettings("announcement", { enabled: bool(input.enabled), text_fa: text(input.text_fa, 200), text_en: text(input.text_en, 200), link });
     refresh();
     return { ok: true, message: "نوار اطلاعیه ذخیره شد." };
+  });
+}
+
+/** A Jalali day of the sale form («۱۴۰۵/۰۹/۳۰»): its start, or the first moment after it (`end`); null for an empty field. */
+function saleDay(v: unknown, label: string, end: boolean): number | null {
+  const raw = text(v, 20);
+  if (!raw) return null;
+  const d = parseJalali(raw);
+  const t = d ? (end ? tehranDayEnd(d.jy, d.jm, d.jd) : tehranDayStart(d.jy, d.jm, d.jd)) : null;
+  if (t === null) throw new UserError(`${label} در تقویم نیست؛ آن را مثل ۱۴۰۵/۰۹/۳۰ بنویسید.`);
+  return t;
+}
+
+/**
+ * «نوار تخفیف روزهای خاص»: the percentage off every piece after the quantity step (members, and Pro when allowed),
+ * the bar's words and colour, and the window in whole Tehran days. The server's clock applies it to prices and
+ * orders; saving rebuilds the static pages with the bar.
+ */
+export async function saveSale(input: Record<string, unknown>): Promise<Result> {
+  return guard(async () => {
+    const enabled = bool(input.enabled);
+    const pct = int(input.pct, 0, 90, 0);
+    if (enabled && pct < 1) throw new UserError("درصد تخفیف را بین ۱ تا ۹۰ بنویسید.");
+    const tone: SaleTone = (SALE_TONES as readonly string[]).includes(String(input.tone)) ? (input.tone as SaleTone) : "pomegranate";
+    const color = tone === "custom" ? text(input.color, 7).toLowerCase() : "";
+    if (tone === "custom" && !HEX.test(color)) throw new UserError("رنگ دلخواه را از انتخاب‌گر رنگ برگزینید.");
+    const from = saleDay(input.from, "روز شروع", false);
+    const until = saleDay(input.until, "روز پایان", true);
+    if (from !== null && until !== null && until <= from) throw new UserError("روز پایان نباید پیش از روز شروع باشد.");
+    const sale = {
+      enabled,
+      pct: pct || DEFAULT_SETTINGS.sale.pct,
+      title_fa: text(input.title_fa, 60),
+      title_en: text(input.title_en, 60),
+      text_fa: text(input.text_fa, 160),
+      text_en: text(input.text_en, 160),
+      tone,
+      color,
+      from: from === null ? "" : new Date(from).toISOString(),
+      until: until === null ? "" : new Date(until).toISOString(),
+      pro: bool(input.pro),
+      link: siteLink(input.link, "نوار تخفیف"),
+    };
+    await saveSettings("sale", sale);
+    refresh();
+    const state = saleState(sale, Date.now());
+    const message =
+      state === "live" ? "نوار تخفیف روزهای خاص ذخیره شد و از همین حالا روی سایت و قیمت‌ها اعمال می‌شود."
+      : state === "soon" ? `نوار تخفیف روزهای خاص ذخیره شد؛ از آغاز ${formatDate(sale.from, "fa")} اعمال می‌شود.`
+      : state === "over" ? "نوار تخفیف روزهای خاص ذخیره شد، اما روز پایان گذشته است؛ نوار نمایش داده نمی‌شود و تخفیفی اعمال نمی‌شود."
+      : "نوار تخفیف روزهای خاص ذخیره شد؛ خاموش است.";
+    return { ok: true, message };
   });
 }
 
@@ -308,7 +368,7 @@ export async function testEmail(input: Record<string, unknown>): Promise<Result>
 export async function resetSettingsGroup(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
     const key = text(input.key, 30);
-    if (key === "contact" || key === "announcement" || key === "shop" || key === "pro" || key === "seo") {
+    if (key === "contact" || key === "announcement" || key === "sale" || key === "shop" || key === "pro" || key === "seo") {
       await saveSettings(key, DEFAULT_SETTINGS[key]);
       refresh();
       return { ok: true, message: "به حالت پیش‌فرض برگشت." };
