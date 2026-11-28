@@ -8,7 +8,8 @@ import type { Media } from "@/lib/media";
 /**
  * The sixth round's collections: «میرا» is gone from the starter catalogue and the copy, and every collection the
  * owner shows on the site has a picture where one exists — its own, else its first piece's — also while it has no
- * published pieces yet («به‌زودی» is only the line under its name then, never an empty arch).
+ * published pieces yet («به‌زودی» is only the line under its name then, never an empty arch). The catalogue keeps a
+ * collection with neither; the site's lists leave it out (`listed`, tests/collections-listed.test.ts).
  */
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
@@ -94,7 +95,7 @@ describe("the public catalogue from the database", () => {
       { id: "c-firouzeh", slug: "firouzeh", name_fa: "فیروزه", name_en: "Firouzeh", tagline_fa: "", tagline_en: "", story_fa: "", story_en: "", media_id: "11111111-1111-4111-8111-111111111111", sort: 0, visible: true },
       // pieces, but no picture of its own
       { id: "c-kashi", slug: "kashi", name_fa: "کاشی", name_en: "Kashi", tagline_fa: "", tagline_en: "", story_fa: "", story_en: "", media_id: null, sort: 1, visible: true },
-      // neither: it stays on the night ground, «به‌زودی»
+      // neither: the catalogue keeps it (its page resolves), the site's lists leave it out (listed)
       { id: "c-del", slug: "del", name_fa: "دل", name_en: "Del", tagline_fa: "", tagline_en: "", story_fa: "", story_en: "", media_id: null, sort: 2, visible: true },
       { id: "c-hidden", slug: "hidden", name_fa: "پنهان", name_en: "Hidden", tagline_fa: "", tagline_en: "", story_fa: "", story_en: "", media_id: null, sort: 3, visible: false },
     );

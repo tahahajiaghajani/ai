@@ -113,7 +113,7 @@ export function Statement({ lang, lines, a, b, copy }: { lang: Lang; lines: [str
 // ------------------------------------------------------------------ the arcade of collections
 
 /**
- * The collections as a row of arches with their names under them (pinned and scrubbed sideways on large screens with
+ * The listed collections (`listed`: each has a picture) as a row of arches with their names under them (pinned and scrubbed sideways on large screens with
  * a mouse: Reel). From 1024px the stage fits the viewport's height, so the names stay in view while the row moves:
  * its paddings (--reel-pad, --reel-gap) shrink on short screens, and a card is as wide as the height allows —
  * --reel-chrome is the height of everything in the stage but the arch (paddings, heading, names with a two-line
@@ -145,10 +145,8 @@ export function Arcade({ lang, collections, copy, display = false }: { lang: Lan
             data-cursor-label={copy.discover}
           >
             <div className="relative px-3 pt-3">
-              {/* its own picture, else its first piece's (withCovers); the night ground only when it has neither */}
-              <Arch media={c.media} lang={lang} sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 68vw" ring="champagne" sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:10px]">
-                {!c.media && <span aria-hidden className="absolute inset-0 bg-mesh-cocoa" />}
-              </Arch>
+              {/* its own picture, else its first piece's (withCovers); a collection with neither is not listed */}
+              <Arch media={c.media} lang={lang} sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 68vw" ring="champagne" sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:10px]" />
               <span className="pointer-events-none absolute inset-x-3 bottom-0 top-3 rounded-t-full bg-gradient-to-t from-night/70 via-transparent to-transparent opacity-80 transition-opacity duration-700 group-hover:opacity-40" aria-hidden />
               <span className={`absolute bottom-5 left-1/2 -translate-x-1/2 text-on-night/80 ${lang === "en" ? "font-label text-xs tracking-[0.3em] ltr" : "text-sm"}`}>{num(String(i + 1).padStart(2, "0"), lang)}</span>
             </div>

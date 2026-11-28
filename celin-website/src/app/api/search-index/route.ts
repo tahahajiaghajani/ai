@@ -9,7 +9,7 @@ import { buildSearchIndex } from "@/lib/search-index";
 export const dynamic = "force-static";
 export const revalidate = 3600;
 
-const cached = unstable_cache(buildSearchIndex, ["celin-search-v1"], { tags: ["catalog"], revalidate: 3600 });
+const cached = unstable_cache(buildSearchIndex, ["celin-search-v2"], { tags: ["catalog"], revalidate: 3600 });
 
 export async function GET() {
   const items = await cached();

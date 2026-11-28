@@ -68,7 +68,7 @@ export interface Collection {
   tagline_en: string;
   story_fa: string;
   story_en: string;
-  /** the collection's own picture, else its first piece's (withCovers); null only when neither exists */
+  /** the collection's own picture, else its first piece's (withCovers); null only when neither exists — then it is not listed (`listed`) */
   media: Media | null;
   sort: number;
   visible: boolean;
@@ -143,10 +143,20 @@ export function coverFromPieces(slug: string, products: readonly Product[]): Med
 
 /**
  * Every collection gets a picture where one exists: its own (Admin → دسته‌ها و مجموعه‌ها), else its first piece's,
- * so a collection shown without a picture of its own never stands as an empty arch.
+ * so a collection shown without a picture of its own never stands as an empty arch (one with neither is not `listed`).
  */
 export function withCovers(catalog: Catalog): Catalog {
   return { ...catalog, collections: catalog.collections.map((k) => (k.media ? k : { ...k, media: coverFromPieces(k.slug, catalog.products) })) };
+}
+
+/**
+ * Whether the site lists a collection: shown by the owner and with a picture after `withCovers` (its own, else a
+ * published piece's). Every public list of collections uses it — the home arcade, /collections, the other collections
+ * under a collection, the header menu and phone drawer, search, the sitemap, the 404 and /craft — so no arch ever
+ * stands empty. The catalogue itself keeps such a collection: its page and its pieces' collection name still resolve.
+ */
+export function listed(k: Collection): k is Collection & { media: Media } {
+  return k.visible !== false && k.media != null;
 }
 
 /** The admin's price of one product in Toman (null = on request) and its stock, as members receive them (src/lib/pricing.ts sets what they see). */

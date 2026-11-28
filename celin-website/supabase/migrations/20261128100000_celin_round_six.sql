@@ -22,6 +22,23 @@
 --    can no longer place orders). Until this file has run, the new site places orders of single pieces without
 --    a sale through it — it charges those alike — and refuses the rest; the sale can be switched on only after.
 
+-- ------------------------------------------------------------------ 0. the fifth round's file first
+-- This file builds on 20261111100000_celin_membership_pro.sql (the order lines' list price, «میرا», the order
+-- function it replaces). Without that file recorded, it stops here and nothing of it applies — the SQL Editor runs
+-- a pasted script as one transaction. Admin → Connections → «کپی SQL» gives the missing files in order.
+do $$
+begin
+  -- two steps: the second query is planned only once the table is known to exist
+  if to_regclass('public.celin_migrations') is null then
+    raise exception 'CELIN round six: run 20261111100000_celin_membership_pro.sql (and the files before it) first'
+      using hint = 'پنل ← اتصالات ← «کپی SQL» فایل‌های اجرانشده را به‌ترتیب می‌دهد.';
+  end if;
+  if not exists (select 1 from public.celin_migrations where name = '20261111100000_celin_membership_pro') then
+    raise exception 'CELIN round six: run 20261111100000_celin_membership_pro.sql first'
+      using hint = 'پنل ← اتصالات ← «کپی SQL» فایل‌های اجرانشده را به‌ترتیب می‌دهد.';
+  end if;
+end $$;
+
 -- ------------------------------------------------------------------ 1. the turning opening
 alter table public.celin_slots add column if not exists gallery uuid[];
 
