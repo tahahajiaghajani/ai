@@ -43,7 +43,7 @@ interface Report {
   /** recorded on demo data, whoever made it: removed with it (per table, a few samples) */
   deleted?: { table: string; label: string; rows: number; samples: string[] }[];
   /** definitions built on demo data: cleaned, switched off when nothing meaningful is left */
-  cleaned?: { table: string; label: string; id: string; name: string; what: string; deactivated: boolean; retired?: boolean }[];
+  cleaned?: { table: string; label: string; id: string; name: string; what: string; deactivated: boolean; retired?: boolean; ended?: string; removed?: boolean }[];
   /** kept records whose people, groups or units were demo data: cleared and routed again */
   rerouted?: { table: string; label: string; rows: number; routed: number; samples: string[] }[];
   /** the dry run reached the request's time limit: what it found so far */
@@ -324,7 +324,7 @@ function PurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => v
           ) : null}
           {d.cleaned?.length ? (
             <>
-              <Alert type="info" showIcon title="تعریف‌هایی که پاک‌سازی می‌شوند" description="فقط ارجاع به دادهٔ نمایشی برداشته می‌شود؛ تعریفی که چیزی از آن نمی‌ماند غیرفعال می‌شود تا هرگز بر همه اعمال نشود. هر یک در ممیزی برای بازبینی ثبت می‌شود." />
+              <Alert type="info" showIcon title="تعریف‌هایی که پاک‌سازی می‌شوند" description="فقط ارجاع به دادهٔ نمایشی برداشته می‌شود؛ تعریفی که چیزی از آن نمی‌ماند غیرفعال یا بازنشسته می‌شود — و اگر نه کلید «فعال» دارد و نه چرخهٔ وضعیت، حذف — تا هرگز بر همه اعمال نشود. هر یک در ممیزی برای بازبینی ثبت می‌شود." />
               <Table
                 size="small"
                 rowKey="id"
@@ -334,7 +334,12 @@ function PurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => v
                   { title: "نوع", dataIndex: "label" },
                   { title: "نام", dataIndex: "name" },
                   { title: "تغییر", dataIndex: "what" },
-                  { title: "", dataIndex: "deactivated", render: (v: boolean, x) => (x.retired ? <Chip tone="warning">بازنشسته می‌شود</Chip> : v ? <Chip tone="warning">غیرفعال می‌شود</Chip> : null) },
+                  {
+                    title: "",
+                    dataIndex: "deactivated",
+                    render: (v: boolean, x) =>
+                      x.retired ? <Chip tone="warning">بازنشسته می‌شود</Chip> : x.removed ? <Chip tone="danger">حذف می‌شود</Chip> : x.ended ? <Chip tone="warning">به «{x.ended}» می‌رود</Chip> : v ? <Chip tone="warning">غیرفعال می‌شود</Chip> : null,
+                  },
                 ]}
               />
             </>

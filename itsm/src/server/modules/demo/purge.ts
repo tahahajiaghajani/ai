@@ -449,7 +449,11 @@ export interface DeletedBucket {
   samples: string[];
 }
 
-/** «تعریف‌های پاک‌سازی‌شده»: a definition built on top of the pack, kept and cleaned (or deactivated, or retired). */
+/**
+ * «تعریف‌های پاک‌سازی‌شده»: a definition built on top of the pack, kept and cleaned — or, left meaningless, ended: switched
+ * off, retired, moved to a closed state of its lifecycle, or (with neither a «فعال» flag nor a lifecycle) removed
+ * (refs.ts `deadEnd`). The preview, the review line and the report say which.
+ */
 export interface CleanedDefinition {
   table: string;
   label: string;
@@ -457,8 +461,14 @@ export interface CleanedDefinition {
   name: string;
   /** what was taken out (Persian) */
   what: string;
+  /** switched off (its «فعال» flag, or its own switch) */
   deactivated: boolean;
+  /** retired (a published catalogue item) */
   retired?: boolean;
+  /** moved by its lifecycle to this closed state (the state's label) */
+  ended?: string;
+  /** removed (soft delete): it has neither a «فعال» flag nor a lifecycle */
+  removed?: boolean;
 }
 
 /** «رکوردهای دوباره ارجاع‌شده»: kept records whose references to the pack were cleared (and routed again). */

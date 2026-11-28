@@ -651,6 +651,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         cleaned: (report.cleaned ?? []).length,
         deactivated: (report.cleaned ?? []).filter((c) => c.deactivated).length,
         retired: (report.cleaned ?? []).filter((c) => c.retired).length,
+        ended: (report.cleaned ?? []).filter((c) => c.ended).length,
+        removed: (report.cleaned ?? []).filter((c) => c.removed).length,
         references: sum(report.rerouted),
         rerouted: (report.rerouted ?? []).reduce((s, x) => s + x.routed, 0),
         skipped: sum(report.skipped),
