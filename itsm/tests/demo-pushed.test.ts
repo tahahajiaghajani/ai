@@ -100,6 +100,61 @@ describe("what a push names of a purge", () => {
     expect(judgePurged(side("journal"), null, wire("journal", { table_key: "todo", record_id: real, author: real }), null, purged)).toEqual({ kind: "write" });
   });
 
+  it("a new definition whose audience, scope or producer named only purged data is stored ended, never «for everyone»", () => {
+    // (before, the lists were emptied and the row stored as pushed: «خالی یعنی همه»)
+    const audience = uuidv7();
+    const service = uuidv7();
+    const group = uuidv7();
+    const more = new Set([...purged, audience, service, group]);
+    const judge = (key: string, row: Record<string, unknown>) => {
+      const agg = wire(key, row);
+      return { v: judgePurged(record(key), tableDef(key)!, agg, null, more), row: agg.row };
+    };
+    // a published catalogue item for a purged audience leaves the catalogue; a draft stays a draft (it cannot be ordered)
+    const item = judge("catalog_item", { name: "قلم شعبه", catalog_id: real, type: "standard", state: "published", available_for: [audience] });
+    expect(item.v).toMatchObject({ kind: "ended" });
+    expect(item.row).toMatchObject({ state: "retired", available_for: [] });
+    const draft = judge("catalog_item", { name: "قلم پیش‌نویس", catalog_id: real, type: "standard", state: "draft", available_for: [audience] });
+    expect(draft.v).toMatchObject({ kind: "ended" });
+    expect(draft.row).toMatchObject({ state: "draft", available_for: [] });
+    // a portal topic for a purged person, an SLA of a purged service, a flow run as a purged person: switched off
+    const topic = judge("portal_topic", { name: "موضوع شعبه", active: true, aud_users: [persona] });
+    expect(topic.v).toMatchObject({ kind: "ended" });
+    expect(topic.row).toMatchObject({ active: false, aud_users: [] });
+    const sla = judge("sla_definition", { name: "پاسخ خدمت شعبه", table_key: "incident", active: true, service_id: service });
+    expect(sla.v).toMatchObject({ kind: "ended" });
+    expect(sla.row).toMatchObject({ active: false, service_id: null });
+    const flow = judge("flow", { name: "جریان شعبه", trigger: "record", run_as: "user", active: true, run_as_user: persona });
+    expect(flow.v).toMatchObject({ kind: "ended" });
+    expect(flow.row).toMatchObject({ active: false, run_as_user: null });
+    // an audience of «همه» that loses a criterion ends; one of «هر یک» keeps its other criteria
+    const all = judge("catalog_audience", { name: "کارشناسان شعبه", match: "all", active: true, units: [demoUnit], roles: ["agent"] });
+    expect(all.v).toMatchObject({ kind: "ended" });
+    expect(all.row).toMatchObject({ active: false, units: [], roles: ["agent"] });
+    const any = judge("catalog_audience", { name: "کارشناسان یا شعبه", match: "any", active: true, units: [demoUnit], roles: ["agent"] });
+    expect(any.v).toEqual({ kind: "write" });
+    expect(any.row).toMatchObject({ active: true, units: [], roles: ["agent"] });
+    // a list that keeps a live id only narrows
+    const link = judge("portal_link", { name: "پیوند شعبه", url: "https://desk.example.com", active: true, aud_groups: [group, real] });
+    expect(link.v).toEqual({ kind: "write" });
+    expect(link.row).toMatchObject({ active: true, aud_groups: [real] });
+  });
+
+  it("a stored definition whose audience or scope would name only purged data keeps the server's copy: nothing of the push", () => {
+    // (before, an offline edit made after the purge won the stale check and wrote the whole row back: «فعال» again, with
+    // its audience emptied)
+    const service = uuidv7();
+    const more = new Set([...purged, service]);
+    const topic = wire("portal_topic", { name: "ویرایش بیرون از خط", active: true, aud_users: [persona] });
+    expect(judgePurged(record("portal_topic"), tableDef("portal_topic")!, topic, { custom: {} }, more)).toMatchObject({ kind: "stored" });
+    const sla = wire("sla_definition", { name: "پاسخ خدمت شعبه", table_key: "incident", active: true, service_id: service });
+    expect(judgePurged(record("sla_definition"), tableDef("sla_definition")!, sla, { custom: {} }, more)).toMatchObject({ kind: "stored" });
+    // one that keeps a live audience takes the push's changes, as any stored record does
+    const kept = wire("portal_topic", { name: "ویرایش بیرون از خط", active: true, aud_users: [persona, real] });
+    expect(judgePurged(record("portal_topic"), tableDef("portal_topic")!, kept, { custom: {} }, more)).toEqual({ kind: "write" });
+    expect(kept.row).toMatchObject({ name: "ویرایش بیرون از خط", aud_users: [real] });
+  });
+
   it("nothing purged: nothing is judged", () => {
     const row = wire("todo", { assigned_to: persona });
     expect(namesPurged(row, new Set())).toBe(false);

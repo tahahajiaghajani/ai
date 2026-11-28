@@ -535,4 +535,56 @@ describe("demo purge and Windows apps", () => {
     await sync();
     await expectConsistentFullRead();
   }, 300_000);
+
+  it("a definition the app pushes after the purge, naming only purged data where that would widen it, is never stored widened", async () => {
+    // (the review of 1.1.5: the push filter emptied a pushed audience or scope and stored the row as pushed — «خالی
+    // یعنی همه» — and an offline edit made after the purge wrote a definition the purge had switched off back on)
+    await newPack();
+    const sys = await systemCtx(cloudCfg, org);
+    const pack = await inDemoScope(org, () =>
+      sys.write(async (tx) => ({
+        group: String((await createIn(tx, sys, "group", { name: "میز خدمت نمایشی", types: ["assignment"] }, { trusted: true })).id),
+        service: String((await createIn(tx, sys, "service", { name: "خدمت کارت نمایشی", service_type: "business" }, { trusted: true })).id),
+      })),
+    );
+    const who = await newPersona();
+    // what the owner built on the pack, online: a portal link for its group, an SLA of its service
+    const sla = { table_key: "incident", type: "sla", target: "response", start_condition: { f: "priority", op: "in", v: ["1", "2", "3", "4"] } };
+    const link = (await web.post(`/o/${org}/r/portal_link`, { name: "سامانهٔ میز خدمت", url: "https://desk.example.com", aud_groups: [pack.group] })).row.id as string;
+    const online = (await web.post(`/o/${org}/r/sla_definition`, { ...sla, name: "پاسخ خدمت کارت", duration: 3600, service_id: pack.service })).row.id as string;
+    await sync();
+    expect(await deskDb.one(`select 1 from sm_portal_links where id = $1 and deleted_at is null`, [link])).toBeTruthy();
+    // the server purges while the app is away (tombstones: it pulled a moment ago); the purge switches both off
+    await web.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" });
+    await purgeUntil(null);
+    expect((await demoStatus(cloudDb, org)).state).toBe("tombstoned");
+    expect(await cloudDb.one(`select active from sm_portal_links where id = $1`, [link])).toEqual({ active: false });
+    expect(await cloudDb.one(`select active, service_id from sm_sla_definitions where id = $1`, [online])).toEqual({ active: false, service_id: null });
+    // offline, after the purge, the app (which still holds the pack) edits the link and makes a topic for the persona and
+    // an SLA of the pack's service
+    const local = await localOwner();
+    await local.patch(`/o/${org}/r/portal_link/${link}`, { name: "سامانهٔ میز خدمت (بیرون از خط)" });
+    const topic = (await local.post(`/o/${org}/r/portal_topic`, { name: "پرسش‌های کارکنان نمایشی", aud_users: [who] })).row.id as string;
+    const offline = (await local.post(`/o/${org}/r/sla_definition`, { ...sla, name: "پاسخ خدمت کارت (بیرون از خط)", duration: 1800, service_id: pack.service })).row.id as string;
+    await sync();
+    // the link stays as the purge left it (off, its audience empty); the topic and the SLA are stored switched off —
+    // never «for everyone» or «every record»
+    const l = (await cloudDb.one<Record<string, any>>(`select active, aud_groups, name from sm_portal_links where id = $1`, [link]))!;
+    expect(l).toMatchObject({ active: false, name: "سامانهٔ میز خدمت" });
+    expect(l.aud_groups ?? []).toEqual([]);
+    const t = (await cloudDb.one<Record<string, any>>(`select active, aud_users, deleted_at from sm_portal_topics where id = $1`, [topic]))!;
+    expect(t).toMatchObject({ active: false, deleted_at: null });
+    expect(t.aud_users ?? []).toEqual([]);
+    expect(await cloudDb.one(`select active, service_id, deleted_at from sm_sla_definitions where id = $1`, [offline])).toEqual({ active: false, service_id: null, deleted_at: null });
+    // the app took the server's copies, and nothing waits or failed
+    expect(await deskDb.one(`select active from sm_portal_links where id = $1`, [link])).toEqual({ active: false });
+    expect(await deskDb.one(`select active from sm_portal_topics where id = $1`, [topic])).toEqual({ active: false });
+    expect(await deskDb.one(`select active, service_id from sm_sla_definitions where id = $1`, [offline])).toEqual({ active: false, service_id: null });
+    expect(await outboxLeft()).toEqual([]);
+    expect(client.state.failed).toEqual([]);
+    // the owner is told what to review: each of them has its line
+    const reviewed = (await cloudDb.query<{ id: string }>(`select entity_id::text as id from sm_audit where org_id = $1 and action = 'demo_purge_review'`, [org])).map((r) => r.id);
+    for (const id of [link, topic, offline]) expect(reviewed).toContain(id);
+    expect((await finalizeDemo(cloudCfg, org)).done).toBe(true);
+  }, 300_000);
 });
