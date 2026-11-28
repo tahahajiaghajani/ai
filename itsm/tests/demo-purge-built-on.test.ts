@@ -211,7 +211,7 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       await reauth(w);
       await w.owner.post(`${P}/demo/signin`, { on: true });
       const st = await w.owner.get(`${P}/demo`);
-      for (const k of ["requester", "agent", "manager", "soc"]) {
+      for (const k of ["requester", "agent", "manager", "soc", "finance"]) {
         const email = st.accounts.find((a: { persona: string }) => a.persona === k).email;
         const c = new Client(w.app);
         await c.post("/auth/login", { email, password: st.password });
@@ -418,6 +418,35 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       for (const k of ["R0", "R1"]) expect(packRuns).not.toContain(runs[k]);
     }, 300_000);
 
+    it("reversals across the boundary and an allocation rule of the pack's cost type, while the pack is loaded", async () => {
+      const o = w.owner;
+      const fin = persona.finance;
+      const { today } = fiscal!;
+      const unit = async (code: string) => (await w.db.one<{ id: string }>(`select id::text as id from sm_org_units where org_id = $1 and code = $2 and deleted_at is null`, [w.org, code]))!.id;
+      const app = await unit("CC-IT-APP");
+      const euc = await unit("CC-IT-EUC");
+      const sw = (await w.db.one<{ id: string }>(`select id::text as id from sm_cost_types where org_id = $1 and code = 'SW' and deleted_at is null`, [w.org]))!.id;
+      // the pack's finance manager posts by hand on the organisation's own centre and type (a demo entry naming nothing
+      // of the pack's but itself), and the owner reverses it: only the reversal's `reversal_of` ties it to the pack
+      built.E1 = (await fin.post(`${P}/r/cost_entry`, { entry_date: today, amount: "1200000", description: "هزینهٔ دستی نمایشی", cost_center_id: app, cost_type_id: sw, source: "manual" })).row.id;
+      built.REV1 = (await o.post(`${P}/financial/entries/${built.E1}/reverse`, { reason: "ثبت تکراری" })).id;
+      // the owner posts by hand, and the pack's finance manager reverses it: a demo reversal of a real entry
+      built.E2 = (await o.post(`${P}/r/cost_entry`, { entry_date: today, amount: "800000", description: "هزینهٔ دستی واقعی", cost_center_id: app, cost_type_id: sw, source: "manual" })).row.id;
+      built.REV2 = (await fin.post(`${P}/financial/entries/${built.E2}/reverse`, { reason: "مبلغ اشتباه" })).id;
+      // a cost type of the pack's, and the owner's allocation rule that shares only that type of its centre
+      built.CT1 = (await fin.post(`${P}/r/cost_type`, { code: "AFT-PRJ", name: "هزینهٔ پروژه‌های نمایشی" })).row.id;
+      built.RULE2 = (await o.post(`${P}/r/allocation_rule`, { name: "تسهیم هزینهٔ پروژه‌ها (واقعی)", source_cost_center_id: euc, cost_types: [built.CT1], method: "percent", active: true })).row.id;
+      const demo = async (id: string) => !!(await w.db.one(`select 1 as x from sm_demo_rows where org_id = $1 and row_id = $2`, [w.org, id]));
+      const marks: Record<string, boolean> = {};
+      for (const k of ["E1", "REV1", "E2", "REV2", "CT1", "RULE2"]) marks[k] = await demo(built[k]);
+      expect(marks).toEqual({ E1: true, REV1: false, E2: false, REV2: true, CT1: true, RULE2: false });
+      const entry = (id: string) => w.db.one<{ reversed: boolean; reversal_of: string | null; amount: string }>(`select reversed, reversal_of::text as reversal_of, amount::text as amount from sm_cost_entries where id = $1`, [id]);
+      expect(await entry(built.E1)).toMatchObject({ reversed: true });
+      expect(await entry(built.REV1)).toMatchObject({ reversal_of: built.E1 });
+      expect(await entry(built.E2)).toMatchObject({ reversed: true });
+      expect(await entry(built.REV2)).toMatchObject({ reversal_of: built.E2 });
+    }, 300_000);
+
     it("the preview says what goes, what is cleaned and what is routed again", async () => {
       const before = await w.db.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [w.org]);
       report = await w.owner.get(`${P}/demo/report`);
@@ -492,6 +521,30 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
         [w.org],
       );
       expect(unbalanced).toEqual([]);
+    }, 300_000);
+
+    it("a reversal goes with the entry it reverses; a rule that shared only the pack's cost type stops, never shares the whole centre", async () => {
+      const one = (sql: string, p: unknown[]) => w.db.one<Record<string, any>>(sql, p);
+      // the owner's reversal of the pack's entry went with it: no negative entry is left reversing nothing (its pointer
+      // cleared), the pack's entries and type went
+      for (const k of ["E1", "REV1", "REV2", "CT1"]) expect(removed.has(built[k]), k).toBe(true);
+      expect(await one(`select 1 as x from sm_cost_entries where id = $1`, [built.REV1])).toBeNull();
+      // the owner's entry the pack reversed stays and is no longer marked reversed (the pack's reversal went)
+      expect(await one(`select reversed from sm_cost_entries where id = $1 and deleted_at is null`, [built.E2])).toEqual({ reversed: false });
+      // no live entry reverses an entry that is not there
+      expect(await w.db.query(
+        `select e.id from sm_cost_entries e where e.org_id = $1 and e.deleted_at is null and e.reversal_of is not null
+            and not exists (select 1 from sm_cost_entries x where x.id = e.reversal_of and x.deleted_at is null)`,
+        [w.org],
+      )).toEqual([]);
+      // the rule that shared only the pack's cost type is off with its list emptied (the engine stores an empty list as
+      // null) — an empty list would share every cost of its centre — and its owner reviews it
+      const rule = await one(`select active, cost_types from sm_allocation_rules where id = $1`, [built.RULE2]);
+      expect(rule?.active).toBe(false);
+      expect(rule?.cost_types ?? []).toEqual([]);
+      const review = await w.db.query<{ summary: string }>(`select summary from sm_audit where org_id = $1 and action = 'demo_purge_review' and entity = 'allocation_rule' and entity_id = $2`, [w.org, built.RULE2]);
+      expect(review).toHaveLength(1);
+      expect(review[0].summary).toContain("نوع‌های هزینهٔ آن فقط دادهٔ نمایشی بودند");
     }, 300_000);
 
     it("a real case that already waited for the pack's people says why now, never «start it with a demo account»", async () => {
