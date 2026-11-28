@@ -37,7 +37,7 @@ function Jobs() {
   const summary = useAdminQuery<{ kinds: { kind: string; queued: number; running: number; failed: number; done: number; oldest_queued: string | null }[]; totals: Record<string, number>; backlog_seconds: number; failed_24h: number }>(["console", "jobs", "summary", org], "/admin/jobs/summary", { org });
   const jobs = useAdminQuery<{ jobs: Row[] }>(["console", "jobs", "list", status, kind, org], "/admin/jobs", { status, kind, org });
   const refresh = () => qc.invalidateQueries({ queryKey: ["admin", "console", "jobs"] });
-  const act = useAction((v: { id: string; action: "retry" | "cancel" }) => api.post(`/admin/jobs/${v.id}/${v.action}`), { success: "انجام شد", onSuccess: refresh });
+  const act = useAction((v: { id: string; action: "retry" | "cancel" }) => api.post<{ message?: string }>(`/admin/jobs/${v.id}/${v.action}`), { success: (r) => r?.message ?? "انجام شد", onSuccess: refresh });
   const tick = useAction(() => api.post<{ ran?: number; done?: number }>("/admin/jobs/tick"), { success: "صف یک بار اجرا شد", onSuccess: refresh });
   const s = summary.data;
   return (

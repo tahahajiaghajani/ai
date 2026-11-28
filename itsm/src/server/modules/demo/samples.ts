@@ -4,12 +4,17 @@
 // member of a group: the display is the person, the row's required reference the place); a row whose display is an
 // identifier (a delivery id, a batch id) is named by that place. Every bucket of the preview uses it: the real rows
 // deleted with the pack (`planReport` in index.ts), the definitions cleaned and the records routed again (clean.ts).
-// One sub-select per reference, through the caller's transaction (PGlite has one connection).
+// The purge plans as the system, so a report holds references (`SampleRef`: table, id, number), never words: the words
+// are read when the report is shown (`sampleTexts`), through the viewer's own read predicate — a row they may not read
+// (a confidential case they take no part in, a record of a secure workspace) is named by its number alone.
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES, refTarget } from "@shared/model/types";
 import { TABLES } from "@shared/tables";
-import type { Queryable } from "../../db";
-import { inSavepoint } from "./purge";
+import type { Ctx } from "../../context";
+import { pgArray, type Queryable } from "../../db";
+import { condEnv, orgSchema, readable } from "../../engine";
+import { access } from "../../access/provider";
+import { inSavepoint, type SampleRef } from "./purge";
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,11 +62,58 @@ export function wordsSql(def: TableDef, x: string, depth = 0): string {
   return `nullif(concat_ws(' — ', ${num}, nullif(${own}, '')), '')`;
 }
 
-/** The words of the first `limit` rows `from` selects (alias `x`, a row of `def`); none when the read fails. */
-export async function sampleWords(q: Queryable, def: TableDef, from: string, params: unknown[], limit = 3): Promise<string[]> {
-  const r = await inSavepoint(q, () => q.query<{ s: string | null }>(`select ${wordsSql(def, "x")} as s ${from} limit ${limit}`, params));
-  return r.ok ? r.value.map((x) => x.s ?? "").filter(Boolean) : [];
+/** A row of `def` as a report keeps it: by reference, its number when it has one (never its words). */
+export function refOf(def: TableDef, row: Record<string, unknown>): SampleRef {
+  const n = typeof row.number === "string" && row.number ? row.number : null;
+  return { table: def.key, id: String(row.id), ...(n ? { number: n } : {}) };
 }
+
+/** The first `limit` rows `from` selects (alias `x`, a row of `def`), by reference; none when the read fails. */
+export async function sampleRefs(q: Queryable, def: TableDef, from: string, params: unknown[], limit = 3): Promise<SampleRef[]> {
+  const num = def.numbered ? `nullif(x.number::text, '')` : "null";
+  const r = await inSavepoint(q, () => q.query<{ id: string; n: string | null }>(`select x.id::text as id, ${num} as n ${from} limit ${limit}`, params));
+  return r.ok ? r.value.map((x) => ({ table: def.key, id: x.id, ...(x.n ? { number: x.n } : {}) })) : [];
+}
+
+const isRef = (x: unknown): x is SampleRef => !!x && typeof x === "object" && typeof (x as SampleRef).table === "string" && typeof (x as SampleRef).id === "string" && UUID.test((x as SampleRef).id);
+export const refKey = (r: Pick<SampleRef, "table" | "id">): string => `${r.table}:${r.id.toLowerCase()}`;
+
+/**
+ * The words of the rows a report names, for its viewer (by `refKey`): read through the viewer's read predicate
+ * (`readable`, as every list — the access provider's scope and the table's row rule), deleted rows included; a row
+ * they may not read, a row that is gone, or a table whose display or place they may not see gets none — the caller
+ * names it by its number alone. Through `ctx.db`, outside any transaction (the preview reads after its dry run).
+ */
+export async function sampleTexts(ctx: Ctx, refs: unknown[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const byTable = new Map<string, Set<string>>();
+  for (const r of refs) {
+    if (!isRef(r)) continue;
+    const ids = byTable.get(r.table) ?? new Set<string>();
+    ids.add(r.id.toLowerCase());
+    byTable.set(r.table, ids);
+  }
+  if (!byTable.size) return out;
+  const schema = await orgSchema(ctx);
+  const env = await condEnv(ctx);
+  for (const [table, ids] of byTable) {
+    const def = schema.def(table);
+    if (!def || def.virtual) continue;
+    // the words come from the display and the place: a viewer who may not see one of them gets the number alone
+    const visible = access().visibleFields(ctx, def);
+    const display = displayOf(def);
+    const place = placeOf(def, display);
+    if (visible && ((display && !visible.has(display.name)) || (place && !visible.has(place.name)))) continue;
+    const params: unknown[] = [pgArray([...ids])];
+    const where = readable(ctx, def, "x", params, env, { deleted: "any" });
+    const rows = await ctx.db.query<{ id: string; s: string | null }>(`select x.id::text as id, ${wordsSql(def, "x")} as s from ${ident(def.table)} x where x.id = any($1::uuid[]) and ${where}`, params);
+    for (const row of rows) if (row.s) out.set(`${table}:${row.id.toLowerCase()}`, row.s.slice(0, 120));
+  }
+  return out;
+}
+
+/** A sample as its viewer reads it (`sampleTexts`): its words, else its number, else nothing (a report's old words too). */
+export const sampleText = (s: unknown, texts: Map<string, string>): string | null => (isRef(s) ? (texts.get(refKey(s)) ?? s.number ?? null) : null);
 
 /**
  * The words of a row of `def` held in memory (clean.ts): its number and display as they are when the display is plain

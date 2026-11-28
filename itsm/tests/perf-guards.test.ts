@@ -73,5 +73,15 @@ describe("speed fixes stay in place", () => {
     expect(m?.sql).toMatch(/create index if not exists sm_jobs_failed_idx on sm_jobs \(org_id, done_at\) where status = 'failed'/);
     expect(src("src/server/modules/admin/platform.ts")).toMatch(/from sm_jobs where status = 'failed' and done_at > now\(\) - interval '24 hours' \$\{orgId \? "and org_id = \$1" : ""\}/);
   });
+
+  it("every tick's look for owed exhausted hooks (and the web's probe) is answered from a partial index of the few failed jobs owing one", async () => {
+    // failed jobs stay 30 days: the look runs at every tick, so it must never scan them
+    const { MIGRATIONS } = await import("@server/db/migrations");
+    const m = MIGRATIONS.find((x) => x.id === "0106_jobs_hook_due");
+    expect(m?.sql).toMatch(/create index if not exists sm_jobs_hook_due_idx on sm_jobs \(updated_at\) where status = 'failed' and hook_due is not null/);
+    const jobs = src("src/server/jobs/index.ts");
+    expect(jobs).toMatch(/select id from sm_jobs where status = 'failed' and hook_due is not null and updated_at < now\(\) - \$\{HOOK_PAUSE_SQL\} order by updated_at limit \$\{HOOK_BATCH\}/);
+    expect(jobs).toMatch(/or exists \(select 1 from sm_jobs where status = 'failed' and hook_due is not null and updated_at < now\(\) - \$\{HOOK_PAUSE_SQL\}\)/);
+  });
 });
 

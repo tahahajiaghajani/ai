@@ -17,8 +17,11 @@ export function endedWords(c: Pick<CleanedDefinition, "deactivated" | "retired" 
   return "پاک‌سازی شد";
 }
 
-/** Write the review line of `c` (`verb`: what happened to it, when the purge did not end it itself). */
-export async function reviewLine(q: Queryable, orgId: string, c: CleanedDefinition, verb = endedWords(c)): Promise<void> {
+/**
+ * Write the review line of `c` (`verb`: what happened to it, when the purge did not end it itself). `name`: the row's
+ * words, read as the line is written — the purge's report keeps none (purge.ts `CleanedDefinition`).
+ */
+export async function reviewLine(q: Queryable, orgId: string, c: CleanedDefinition & { name: string }, verb = endedWords(c)): Promise<void> {
   const summary = `پس از حذف داده‌های نمایشی نیاز به بازبینی دارد: ${c.label} «${c.name}» ${verb}${c.what ? ` — ${c.what}` : ""}`.slice(0, 500);
   await q.query(
     `insert into sm_audit (id, org_id, user_id, action, entity, entity_id, summary, data, origin, actor_kind) values ($1, $2, null, 'demo_purge_review', $3, $4, $5, $6::jsonb, null, 'system')`,
