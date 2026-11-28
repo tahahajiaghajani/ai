@@ -355,7 +355,7 @@ export function problemsByNode(problems: readonly FlowProblem[] | undefined): Ma
 // ---------------------------------------------------------------------------------------------------------------
 // A case's diagram: statuses, the path taken, the phone's list
 
-export type StatusTone = "done" | "active" | "mine" | "expected" | "skipped" | "future";
+export type StatusTone = "done" | "active" | "waiting" | "mine" | "expected" | "skipped" | "future";
 
 export interface StatusMeta {
   /** the word beside the icon («انجام‌شده»…) */
@@ -369,6 +369,8 @@ export interface StatusMeta {
 export const STEP_STATUS: Record<NodeStatus, StatusMeta> = {
   done: { label: "انجام‌شده", tone: "done", icon: "circle-check" },
   active: { label: "در جریان", tone: "active", icon: "circle-dot" },
+  // a step whose round waits with nobody to act (1.1.5): the case says «در انتظار», the step says whom it waits for
+  unstaffed: { label: "منتظر انجام‌دهنده", tone: "waiting", icon: "hourglass" },
   mine_open: { label: "نوبت شما", tone: "mine", icon: "hand" },
   mine_done: { label: "انجام‌شده به دست شما", tone: "done", icon: "user-check" },
   mine_expected: { label: "مرحلهٔ آیندهٔ شما", tone: "expected", icon: "user-round-search" },
@@ -376,8 +378,8 @@ export const STEP_STATUS: Record<NodeStatus, StatusMeta> = {
   future: { label: "بعدی", tone: "future", icon: "circle-dashed" },
 };
 
-/** The legend's entries, in the order of §8.6 («انجام‌شده · در جریان · نوبت شما · مراحل شما · بعدی»). */
-export const LEGEND_ORDER: NodeStatus[] = ["done", "active", "mine_open", "mine_done", "mine_expected", "future", "skipped"];
+/** The legend's entries, in the order of §8.6 («انجام‌شده · در جریان · منتظر انجام‌دهنده · نوبت شما · مراحل شما · بعدی»). */
+export const LEGEND_ORDER: NodeStatus[] = ["done", "active", "unstaffed", "mine_open", "mine_done", "mine_expected", "future", "skipped"];
 
 /** The word of a decision or of how a case ended («تأیید شد»، «ردشده»…). */
 export function outcomeLabel(outcome: string | null | undefined, nodeType?: string): string {
@@ -422,7 +424,7 @@ export function listSteps(g: ProcessGraph): ProcessNode[] {
 /** «مرحلهٔ ۲ از ۴»: the form steps of a case and the position of the first one still open (phone header). */
 export function stepCounter(g: ProcessGraph, statuses: Record<string, NodeStatusView> | null | undefined): { at: number; of: number } {
   const steps = listSteps(g).filter((n) => n.type === "form_step" && statuses?.[n.id]?.status !== "skipped");
-  const open = steps.findIndex((n) => ["active", "mine_open"].includes(statuses?.[n.id]?.status ?? ""));
+  const open = steps.findIndex((n) => ["active", "unstaffed", "mine_open"].includes(statuses?.[n.id]?.status ?? ""));
   const done = steps.filter((n) => ["done", "mine_done"].includes(statuses?.[n.id]?.status ?? "")).length;
   return { at: open >= 0 ? open + 1 : Math.min(done, steps.length), of: steps.length };
 }

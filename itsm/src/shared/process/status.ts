@@ -1,6 +1,8 @@
 // The diagram of a case (design F §3.6.7, F4a): `stepStatuses(version, case, myTasks, me)` gives every node of the
 // version's graph one status —
-//   · `done` (with its outcome), `active` (with how many people it waits for);
+//   · `done` (with its outcome), `active` (with how many people it waits for); `unstaffed`: an active step whose open
+//     round has nobody to act — nobody was found, or more people than it takes (`withUnstaffed`, release 1.1.5:
+//     «منتظر انجام‌دهنده», not «در جریان»);
 //   · `mine_open`, `mine_done`: a step I have open, or one I acted in;
 //   · `mine_expected`: a step still to come whose people may include me — by a static check of my positions, groups,
 //     roles and named membership (F3's `mayInclude`), plus the steps the server's resolver dry run names (`expected`);
@@ -13,7 +15,7 @@
 import { mayInclude, type PersonFacts } from "./assignees";
 import { forwardEdges, formStepOf, progressPort, startOf, type CaseProgress, type EndOutcome, type ProcessGraph, type StepOutcome } from "./graph";
 
-export type NodeStatus = "done" | "active" | "mine_open" | "mine_done" | "mine_expected" | "skipped" | "future";
+export type NodeStatus = "done" | "active" | "unstaffed" | "mine_open" | "mine_done" | "mine_expected" | "skipped" | "future";
 
 export interface NodeStatusView {
   status: NodeStatus;
@@ -126,5 +128,16 @@ export function stepStatuses(
     }
     out[n.id] = { status: "future" };
   }
+  return out;
+}
+
+/**
+ * The statuses with the steps that wait for people marked (the case API's `waiting`, @shared/process/waiting): an
+ * active step whose open round has no open task is `unstaffed` — its diagram node, list row and the header's channel
+ * say «منتظر انجام‌دهنده» while the case says «در انتظار». Anything else is left as it is.
+ */
+export function withUnstaffed(statuses: Record<string, NodeStatusView>, waiting: Iterable<string>): Record<string, NodeStatusView> {
+  const out = { ...statuses };
+  for (const id of waiting) if (out[id]?.status === "active") out[id] = { ...out[id], status: "unstaffed", waiting: 0 };
   return out;
 }
