@@ -4,7 +4,7 @@ import { db, isMissingTable } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { MEDIA_COLUMNS, rowToMedia, type Media, type MediaRow } from "@/lib/media";
-import type { Catalog, Category, Collection, Product, ProPrices, Spec, Variant } from "@/lib/catalog-types";
+import { withCovers, type Catalog, type Category, type Collection, type Product, type ProPrices, type Spec, type Variant } from "@/lib/catalog-types";
 import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS } from "@/content/seed-catalog";
 import { SEED_MEDIA } from "@/content/seed-media";
 
@@ -42,7 +42,7 @@ function seedCatalog(): Catalog {
     tagline_en: c.tagline_en,
     story_fa: c.story_fa,
     story_en: c.story_en,
-    media: c.image ? SEED_MEDIA[c.image] : null,
+    media: SEED_MEDIA[c.image],
     sort: i,
     visible: true,
     soon: !SEED_PRODUCTS.some((p) => p.collection === c.slug),
@@ -259,8 +259,9 @@ async function catalogInDbStrict(): Promise<boolean> {
 }
 
 async function loadCatalog(): Promise<Catalog> {
-  if (!(await catalogInDbStrict())) return seedCatalog();
-  return (await dbCatalog()) ?? seedCatalog();
+  const catalog = (await catalogInDbStrict()) ? ((await dbCatalog()) ?? seedCatalog()) : seedCatalog();
+  // a collection without a picture of its own shows its first piece's
+  return withCovers(catalog);
 }
 
 // every admin change invalidates the tag at once; the timer is only a safety net for edits made in SQL
@@ -279,7 +280,7 @@ export async function getCatalog(): Promise<Catalog> {
   } catch (e) {
     console.error("[catalog]", e);
     if (db()) throw e;
-    return seedCatalog();
+    return withCovers(seedCatalog());
   }
 }
 

@@ -69,7 +69,7 @@ Rules: Persian digits on fa pages (`num`, `formatPrice`, `formatDate`); Latin sn
 | `.fx-parallax`, `.fx-drift`, `.fx-arrive` | CSS scroll-driven (compositor only): a picture drifting inside its frame / a layer drifting slower (`--drift` > 0) or faster (`--drift` < 0) than the page / a block rising softly out of the band above as it arrives. No JS; off with reduced motion; static where unsupported |
 | `Sparkles` | glints detected on the bright facets of the parent's `<img>` (any uploaded photo) |
 | `Aura palette="espresso|paraiba|cocoa|porcelain"` | WebGL silk light behind a band (CSS mesh fallback) |
-| `Reel` | horizontal row that stays in view on desktop while vertical scrolling moves it (reading direction), swipe row on touch; keyboard focus scrolls to the focused card |
+| `Reel` | horizontal row that stays in view on desktop while vertical scrolling moves it (reading direction), swipe row on touch; keyboard focus scrolls to the focused card. Its stage must fit the viewport while pinned (the home arcade sizes its cards from `100svh` and shrinks its paddings on short screens); a stage still taller sticks with its lower part in view (`--pin-top`), so what sits at its foot — the names under the arches — is never under the fold |
 | `.fx-pin` / `.fx-pin-stage` | scenes that stay in view (Reel, the arch window, the timeline): CSS `sticky` over `--pin`, ScrollTrigger only scrubs — never GSAP `pin` (layout shift, a jump at the pin) |
 | `Magnetic` | main CTA leans to the pointer |
 | `Cursor` | copper glint; `data-cursor="view"` (+ `data-cursor-label`) opens a disc over pictures; `data-tone="light"` on dark bands |

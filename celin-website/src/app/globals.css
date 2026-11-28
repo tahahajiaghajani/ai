@@ -696,7 +696,8 @@ html[data-motion="reduced"].js [data-reveal]:not([data-in]) {
   }
   html.js:not([data-motion="reduced"]) .fx-pin:not([data-static]) > .fx-pin-stage {
     position: sticky;
-    top: 0;
+    /* 0, or minus the overhang of a stage taller than the viewport (Reel sets it): its lower part stays in view */
+    top: var(--pin-top, 0px);
   }
 }
 

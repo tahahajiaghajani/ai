@@ -34,10 +34,11 @@ export interface Collection {
   tagline_en: string;
   story_fa: string;
   story_en: string;
+  /** the collection's own picture, else its first piece's (withCovers); null only when neither exists */
   media: Media | null;
   sort: number;
   visible: boolean;
-  /** no published pieces yet: shown as «به زودی» (without a picture when it has none) */
+  /** no published pieces yet: «به‌زودی» stands under its name when it has no tagline (its picture still shows) */
   soon: boolean;
 }
 
@@ -89,6 +90,19 @@ export interface Catalog {
   products: Product[];
   /** "seed" = the built-in starter catalogue (database not set up or not imported yet) */
   source: "db" | "seed";
+}
+
+/** The first picture of a collection's pieces, in the catalogue's order (`products` are sorted as the site shows them). */
+export function coverFromPieces(slug: string, products: readonly Product[]): Media | null {
+  return products.find((p) => p.collection === slug && p.images.length > 0)?.images[0] ?? null;
+}
+
+/**
+ * Every collection gets a picture where one exists: its own (Admin → دسته‌ها و مجموعه‌ها), else its first piece's,
+ * so a collection shown without a picture of its own never stands as an empty arch.
+ */
+export function withCovers(catalog: Catalog): Catalog {
+  return { ...catalog, collections: catalog.collections.map((k) => (k.media ? k : { ...k, media: coverFromPieces(k.slug, catalog.products) })) };
 }
 
 /** The admin's price of one product in Toman (null = on request) and its stock, as members receive them (src/lib/pricing.ts sets what they see). */
