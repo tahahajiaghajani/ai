@@ -1,4 +1,4 @@
--- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۹ از ۹ (0007_access … 0105_demo_purge_sync)
+-- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۹ از ۹ (0007_access … 0106_jobs_hook_due)
 -- بخش‌ها را به‌ترتیب، هر کدام یک بار، در یک snippet تازه بچسبانید و Run بزنید (docs/SETUP_FA.md بخش ۱-۵).
 -- اجرای دوباره بی‌خطر است. خودکار ساخته می‌شود: npm run schema
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
@@ -1308,3 +1308,12 @@ end
 $fn$;
 
 insert into sm_migrations (id) values ('0105_demo_purge_sync') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0106_jobs_hook_due — کارهای پس‌زمینه: پایان‌بندی هر کار ناتمام (وضعیت نهایی ردیف آن یا نوبت بعدی‌اش) تا انجام نشده، در نوبت‌های بعد دوباره امتحان می‌شود
+-- ---------------------------------------------------------------------------
+alter table sm_jobs add column if not exists hook_due text;
+alter table sm_jobs add column if not exists hook_tries int not null default 0;
+create index if not exists sm_jobs_hook_due_idx on sm_jobs (updated_at) where status = 'failed' and hook_due is not null;
+
+insert into sm_migrations (id) values ('0106_jobs_hook_due') on conflict (id) do nothing;

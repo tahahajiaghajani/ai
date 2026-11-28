@@ -444,7 +444,13 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
   attempt, or its handler threw at it (not `PermanentJobError`): `registerJobHandler(kind, fn, { onExhausted })` or
   `registerJobExhausted(kind, hook)`. The hook runs after the job's update, in the job's demo scope, its error logged:
   it puts the kind's row in a final state (a backup «failed», an agent or flow run «failed») or queues a chain's next
-  round at its interval (the mailbox poller, a directory sync, the nightly archival…). A chain's handler throws rather
+  round at its interval (the mailbox poller, a directory sync, the nightly archival…). The statement that fails the job
+  records the hook as owed (`hook_due`, `hook_tries`): one that throws or is cut (a time limit, a closing app) runs
+  again at a later tick (`settleOwedHooks`, after 1, 2, 4… minutes, `HOOK_TRIES` in all, then given up as an error in
+  the log). The consoles' «لغو» of a queued job ends it the same way (`cancelQueuedJob`, cause `canceled`), and
+  «دوباره» of a chain's failed round whose next round is queued brings that round forward (`retryFailedJob`). A run
+  that returned is a success whatever happens to its outcome's write: a database failure there is tried again
+  (`OUTCOME_TRIES`), then at the process's next tick — never taken for the handler's failure. A chain's handler throws rather
   than returns when a read fails, except when its organisation is gone. Finished jobs are kept 3 days (failed 30) and deleted by row address in batches of 2,000, at most 2 s of a
   tick and once an hour per process (`cleanup: false` skips it).
 - Triggers: the Windows app ticks every 10 s; the server edition's scheduler leader on its interval and when a write
