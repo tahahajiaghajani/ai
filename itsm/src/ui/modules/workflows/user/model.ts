@@ -315,7 +315,7 @@ export function stateChannel(graph: ProcessGraph, statuses: Record<string, NodeS
     if (n.type !== "form_step") continue;
     const st = statuses?.[n.id]?.status;
     if (st === "skipped") continue;
-    const state: ChannelState = st === "done" || st === "mine_done" ? "done" : st === "mine_open" ? "mine" : st === "active" ? "current" : "future";
+    const state: ChannelState = st === "done" || st === "mine_done" ? "done" : st === "mine_open" ? "mine" : st === "active" || st === "unstaffed" ? "current" : "future";
     out.push({ key: n.id, label: processNodeLabel(n), state });
   }
   out.push({ key: "__end", label: "پایان", state: finished ? "done" : "future" });
@@ -330,7 +330,7 @@ export function takenFromStatuses(graph: ProcessGraph, statuses: Record<string, 
   const out = new Set<string>();
   if (!statuses) return out;
   const passed = (id: string) => ["done", "mine_done"].includes(statuses[id]?.status ?? "");
-  const reached = (id: string) => ["done", "mine_done", "active", "mine_open"].includes(statuses[id]?.status ?? "");
+  const reached = (id: string) => ["done", "mine_done", "active", "unstaffed", "mine_open"].includes(statuses[id]?.status ?? "");
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   for (const e of forwardEdges(graph)) {
     if (!passed(e.source) || !reached(e.target)) continue;

@@ -35,7 +35,9 @@ import type { FormLayoutV2, Right } from "@shared/forms/layout";
 import type { FormsSnapshot } from "@shared/forms/snapshot";
 import { DEFAULT_TIMEZONE } from "@shared/constants";
 import { localDate } from "@shared/model/jalali-buckets";
-import { STEP_STATUS } from "../src/ui/modules/workflows/kit/model";
+import { STEP_STATUS, statusLine, stepCounter } from "../src/ui/modules/workflows/kit/model";
+import { StepLegend, usedStatuses } from "../src/ui/modules/workflows/kit/StepLegend";
+import { withUnstaffed } from "@shared/process";
 import { fileIds } from "../src/ui/modules/workflows/kit/files";
 import { ROUTES, NAV } from "../src/ui/modules/registry";
 import { userPart } from "../src/ui/modules/workflows/user/routes";
@@ -884,6 +886,25 @@ describe("1.1.5: a case's step that waits, and its managers", () => {
       waiting: { f: nobody, a: many },
       ...over,
     }) as unknown as CaseDetail;
+
+  it("the diagram says «منتظر انجام‌دهنده» of a step that waits with nobody — its node, the legend, the header's channel — never «در جریان»", () => {
+    const shown = withUnstaffed({ t: { status: "done" }, s: { status: "mine_done", outcome: "submitted", round: 1 }, f: { status: "active", waiting: 0, round: 1 }, a: { status: "active", waiting: 2, round: 1 } }, ["f"]);
+    expect(shown.f).toEqual({ status: "unstaffed", waiting: 0, round: 1 });
+    // a step with people stays «در جریان»; a step that is no longer active, or that the graph lacks, is left alone
+    expect(shown.a).toEqual({ status: "active", waiting: 2, round: 1 });
+    expect(withUnstaffed({ f: { status: "done", outcome: "submitted" } }, ["f", "x"])).toEqual({ f: { status: "done", outcome: "submitted" } });
+    expect(STEP_STATUS.unstaffed).toMatchObject({ label: "منتظر انجام‌دهنده", tone: "waiting" });
+    expect(statusLine(shown.f, "form_step")).toBe("منتظر انجام‌دهنده");
+    expect(statusLine(shown.a, "form_step")).toBe("در جریان · ۲ نفر");
+    // the legend lists what the diagram shows: the waiting step, and no «در جریان» where nothing is in progress
+    const legend = renderToStaticMarkup(createElement(StepLegend, { only: usedStatuses(withUnstaffed({ s: { status: "done" }, f: { status: "active", waiting: 0 } }, ["f"])) }));
+    expect(legend).toContain("منتظر انجام‌دهنده");
+    expect(legend).not.toContain("در جریان");
+    // still the case's current step: the header's channel, the phone's «مرحلهٔ ۲ از ۳» and the path taken to it
+    expect(stateChannel(g, shown, false).map((x) => [x.key, x.state])).toEqual([["s", "done"], ["f", "current"], ["a", "current"], ["__end", "future"]]);
+    expect(stepCounter(g, shown)).toEqual({ at: 2, of: 3 });
+    expect(takenFromStatuses(g, shown).has(g.edges.find((e) => e.source === "s" && e.target === "f")!.id)).toBe(true);
+  });
 
   it("«نقش شما» names the case's manager (B3: the owner read «خواننده» beside the managers' actions)", () => {
     expect(myPart(detailOf(), "u-owner")).toEqual(["مسئول گردش‌کار"]);

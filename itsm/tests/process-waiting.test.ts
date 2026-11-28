@@ -115,11 +115,14 @@ describe("why a step found nobody, and who was told", () => {
     // the managers' page: why, the line, the reasons, and the action
     const m = await detail(X.mgr, id);
     expect(m.waiting).toEqual({ a: { reason: "nobody", message: line1, notes: ["کسی «میز کار» نیست"] } });
+    // the diagram's node says whom it waits for («منتظر انجام‌دهنده»), not «در جریان» (1.1.5's click-through)
+    expect(m.statuses.a).toMatchObject({ status: "unstaffed", waiting: 0 });
     expect(m.can.reresolve).toBe(true);
     expect(m.demo).toBe(false);
     // the requester reads the line, not the reasons, and has no such action
     const r = await detail(X.req, id);
     expect(r.waiting).toEqual({ a: { reason: "nobody", message: line1, notes: [] } });
+    expect(r.statuses.a.status).toBe("unstaffed");
     expect(r.can.reresolve).toBe(false);
     // the managers' notice (template 2) says why
     const bells = await w.o.db.query<{ title: string; body: string }>(`select title, body from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [w.o.org, X.mgr, id]);
@@ -263,8 +266,11 @@ describe("«دوباره پیدا کردن انجام‌دهنده»", () => {
     // queued once, a quiet half minute later
     expect(await queuedReresolve()).toEqual([{ later: true }]);
     expect(await openAt(d1)).toEqual([]);
+    expect((await detail(X.mgr, d1)).statuses.a.status).toBe("unstaffed");
     await runReresolve();
     expect(await openAt(d1)).toEqual([X.desk]);
+    // found: the step is in progress again
+    expect((await detail(X.mgr, d1)).statuses.a).toMatchObject({ status: "active", waiting: 1 });
     expect(await journal(w, d1)).toContain("با تغییر دارندگان نقش‌ها، گروه‌ها یا نقش‌های دسترسی، انجام‌دهندهٔ «میز خودکار» دوباره جسته شد؛ مرحله به کارشناس میز سپرده شد.");
     // the people found are told as when a step opens
     const bells = await w.o.db.query<{ title: string }>(`select title from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [w.o.org, X.desk, d1]);

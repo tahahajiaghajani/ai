@@ -2,8 +2,7 @@
 // statuses of a case's diagram (./model.ts STEP_STATUS). Light: lists and the phone's step list use them without the
 // canvas. Decorative: the word beside each icon carries the meaning (aria-hidden).
 import {
-  Bell, CircleCheck, CircleDashed, CircleDot, CircleMinus, FilePen, Flag, GitBranch, Hand, Merge, PencilLine, Play, Signpost, Split, Timer, UserCheck,
-  UserRoundSearch, Workflow, type LucideIcon,
+  Bell, CircleCheck, CircleDashed, CircleDot, CircleMinus, FilePen, Flag, GitBranch, Hand, Hourglass, Merge, PencilLine, Play, Signpost, Split, Timer, UserCheck, UserRoundSearch, Workflow, type LucideIcon,
 } from "lucide-react";
 import { PROCESS_NODE_TYPES, isProcessNodeType, type NodeStatus } from "@shared/process";
 import { STEP_STATUS } from "./model";
@@ -25,6 +24,7 @@ const NODE_ICONS: Record<string, LucideIcon> = {
 const STATUS_ICONS: Record<string, LucideIcon> = {
   "circle-check": CircleCheck,
   "circle-dot": CircleDot,
+  hourglass: Hourglass,
   hand: Hand,
   "user-check": UserCheck,
   "user-round-search": UserRoundSearch,
