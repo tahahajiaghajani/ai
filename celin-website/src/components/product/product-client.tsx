@@ -616,7 +616,7 @@ export function ProductClient({
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">{name}</p>
-            <PriceSlot productId={product.id} variantId={variantId} among={among} lang={lang} showStock={false} qty={qty * pack} className="font-ui" />
+            <PriceSlot productId={product.id} variantId={variantId} among={among} lang={lang} showStock={false} qty={qty * pack} pack={pack} className="font-ui" />
           </div>
           <button type="button" tabIndex={sticky ? 0 : -1} onClick={() => actionsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} className="btn btn-metal min-h-11 px-5">
             {me?.pro.active ? tr.add : c.proBar.guestCta}

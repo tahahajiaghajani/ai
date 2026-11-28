@@ -16,9 +16,10 @@ import { useCartCount } from "@/components/cart/cart-store";
  * (the pieces being chosen on the product page; one on a card) — sees the original price (twice the admin's) struck
  * through and the price at that step under it; on the product page a line says the pieces and the step's percentage
  * off the whole order. While the special-day discount runs, its percentage comes off that price too (a Pro account,
- * when the sale includes Pro, then sees the admin's price struck through — the only time it sees two prices). On the
- * product page of a piece bought in packs (`pack` > 1) the price reads «هر عدد» and a line under it gives the pack's
- * price, `pack` pieces at that price — worked out here, from the price book, never in the page. The box keeps its
+ * when the sale includes Pro, then sees the admin's price struck through — the only time it sees two prices). For a
+ * piece bought in packs (`pack` > 1) the price reads «هر عدد» wherever it shows (the phone's action bar too), and on
+ * the product page a line under it gives the pack's price, `pack` pieces at that price — worked out here, from the
+ * price book, never in the page. The box keeps its
  * height while loading (no layout shift), and the loading state is a still bone bar — never the locked words, so
  * members don't see them flash.
  */
@@ -32,6 +33,15 @@ export function stockBand(p: { stock: number }, book: Pick<PriceBook, "stockDisp
 }
 
 const DOT = { in: "bg-success", low: "bg-warning", out: "bg-faint" };
+
+/**
+ * What a price of a pack product says beside it: «هر عدد» on every slot of a piece bought in packs (a bare figure
+ * beside «افزودن به سفارش» would read as the pack's price), the pack's own price only on the product page.
+ */
+export function packNotes(size: "card" | "pdp", pack: number, value: number | null): { perPiece: boolean; perPack: boolean } {
+  const perPiece = pack > 1 && value !== null;
+  return { perPiece, perPack: perPiece && size === "pdp" };
+}
 
 export function useProPrice(productId: string): { book: PriceBook | null | undefined; price: ProPrice | undefined } {
   const book = usePriceBook();
@@ -98,8 +108,8 @@ export function PriceSlot({
   const varies = !v && pool.length > 0 && new Set(pool.map((x) => x.price ?? price.price)).size > 1;
   const stock = v ? v.stock : stockOf(price);
   const band = stockBand({ stock }, book, lang);
-  // the product page of a piece bought in packs: one piece's price, then the pack's
-  const perPack = size === "pdp" && pack > 1 && value !== null;
+  // a piece bought in packs: one piece's price, labelled so; on the product page the pack's price under it
+  const { perPiece, perPack } = packNotes(size, pack, value);
   const fade = wasLoading.current;
   wasLoading.current = false;
   return (
@@ -114,7 +124,7 @@ export function PriceSlot({
         {discounted && <span className="sr-only">{sale ? c.price.nowSale : c.price.now} </span>}
         {value === null ? c.price.onRequest : `${varies ? `${c.price.from} ` : ""}${formatPrice(discounted ? stepped : value, lang)}`}
       </span>
-      {perPack && <span className="ms-2 font-ui text-xs text-muted">{c.price.perPiece}</span>}
+      {perPiece && <span className="ms-2 font-ui text-xs text-muted">{c.price.perPiece}</span>}
       {showStock && book.showStock && (
         <span className={`ms-3 inline-flex items-center gap-1.5 align-middle ${size === "pdp" ? "text-sm" : "text-xs"} text-muted`}>
           <span className={`size-1.5 rounded-full ${DOT[band.tone]}`} aria-hidden />

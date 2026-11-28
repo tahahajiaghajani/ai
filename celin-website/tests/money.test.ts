@@ -236,3 +236,22 @@ describe("the basket: a single line and pack lines of one option share its stock
     expect(accountCopy("en").cart.overShared("120", "99")).toBe("Only 120 in stock, and 99 of them are in your other lines of this option");
   });
 });
+
+describe("a pack product's price says it is one piece's", async () => {
+  const { packNotes } = await import("@/components/pro/price-slot");
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+
+  it("«هر عدد» wherever the price of a piece bought in packs shows; the pack's price on the product page only", () => {
+    expect(packNotes("pdp", 4, 1_000_000)).toEqual({ perPiece: true, perPack: true });
+    expect(packNotes("card", 4, 1_000_000)).toEqual({ perPiece: true, perPack: false }); // the phone's action bar
+    expect(packNotes("card", 1, 1_000_000)).toEqual({ perPiece: false, perPack: false }); // single, and the product cards
+    expect(packNotes("pdp", 4, null)).toEqual({ perPiece: false, perPack: false }); // «استعلام قیمت»
+  });
+
+  it("the phone's action bar passes the pack being chosen", () => {
+    const src = readFileSync(path.join(__dirname, "../src/components/product/product-client.tsx"), "utf8");
+    const bar = src.slice(src.indexOf("phone: sticky action bar"));
+    expect(bar).toMatch(/<PriceSlot [^>]*qty=\{qty \* pack\} pack=\{pack\}/);
+  });
+});
