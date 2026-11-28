@@ -3,18 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import { commonCopy } from "@/content/copy/common";
 import { fromPrice, stockOf, type ProPrice } from "@/lib/catalog-types";
-import { formatPrice, num, type Lang } from "@/lib/format";
-import { atPct, listPrice, pctFor } from "@/lib/pricing";
+import { formatPct, formatPrice, num, type Lang } from "@/lib/format";
+import { listPrice, offPct, pctFor, salePct, unitAt } from "@/lib/pricing";
+import { saleTitle } from "@/lib/sale";
 import { usePriceBook, type PriceBook } from "@/components/pro/session";
 import { useCartCount } from "@/components/cart/cart-store";
 
 /**
  * The price slot of a product. Everyone sees words in the price's own style («قیمت برای اعضا»); members see the
- * price of one piece at their level (src/lib/pricing.ts); Pro accounts also a stock band (members see no stock). A member whose order would reach a
- * quantity step — the pieces already in the basket plus `qty` (the pieces being chosen on the product page; one
- * on a card) — sees the original price (twice the admin's) struck through and the price at that quantity under
- * it; a Pro account always sees the admin's price alone. The box keeps its height while loading (no layout
- * shift), and the loading state is a still bone bar — never the locked words, so members don't see them flash.
+ * price of one piece at their level (src/lib/pricing.ts); Pro accounts also a stock band (members see no stock). A
+ * member whose WHOLE order would reach a quantity step — every piece already in the basket, of any design, plus `qty`
+ * (the pieces being chosen on the product page; one on a card) — sees the original price (twice the admin's) struck
+ * through and the price at that step under it; on the product page a line says the pieces and the step's percentage
+ * off the whole order. While the special-day discount runs, its percentage comes off that price too (a Pro account,
+ * when the sale includes Pro, then sees the admin's price struck through — the only time it sees two prices). The
+ * box keeps its height while loading (no layout shift), and the loading state is a still bone bar — never the locked
+ * words, so members don't see them flash.
  */
 
 export function stockBand(p: { stock: number }, book: Pick<PriceBook, "stockDisplay" | "lowStock">, lang: Lang): { text: string; tone: "in" | "low" | "out" } {
@@ -74,10 +78,13 @@ export function PriceSlot({
   const v = variantId ? price.variants[variantId] : undefined;
   const base = v ? v.price ?? price.price : Object.keys(price.variants).length ? fromPrice(price) : price.price;
   const value = base === null ? null : listPrice(base, book.pricing);
-  // the quantity step the order would reach with these pieces (members only; Pro has no steps)
+  // the quantity step the whole order would reach with these pieces (members only; Pro has no steps), then the sale
   const pieces = inBasket + Math.max(1, Math.floor(qty) || 1);
-  const stepped = base === null ? null : atPct(base, pctFor(pieces, book.pricing));
+  const pct = pctFor(pieces, book.pricing);
+  const sale = salePct(book.pricing);
+  const stepped = base === null ? null : unitAt(base, pct, sale);
   const discounted = value !== null && stepped !== null && stepped < value;
+  const stepOff = offPct(book.pricing.listPct, pct);
   const varies = !v && Object.keys(price.variants).length > 0 && new Set(Object.values(price.variants).map((x) => x.price ?? price.price)).size > 1;
   const stock = v ? v.stock : stockOf(price);
   const band = stockBand({ stock }, book, lang);
@@ -92,7 +99,7 @@ export function PriceSlot({
         </span>
       )}
       <span className="text-ink tabular-nums">
-        {discounted && <span className="sr-only">{c.price.now} </span>}
+        {discounted && <span className="sr-only">{sale ? c.price.nowSale : c.price.now} </span>}
         {value === null ? c.price.onRequest : `${varies ? `${c.price.from} ` : ""}${formatPrice(discounted ? stepped : value, lang)}`}
       </span>
       {showStock && book.showStock && (
@@ -101,7 +108,12 @@ export function PriceSlot({
           {band.text}
         </span>
       )}
-      {discounted && size === "pdp" && <span className="mt-1 block font-ui text-xs leading-5 text-muted">{c.price.atPieces(num(pieces, lang))}</span>}
+      {discounted && size === "pdp" && (
+        <span className="mt-1 block font-ui text-xs leading-5 text-muted">
+          {stepOff > 0 && <span className="block">{c.price.atPieces(num(pieces, lang), formatPct(stepOff, lang))}</span>}
+          {sale > 0 && book.pricing.sale && <span className="block text-gold-text">{c.sale.line(saleTitle(book.pricing.sale, lang), formatPct(sale, lang))}</span>}
+        </span>
+      )}
     </div>
   );
 }

@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import { accountCopy } from "@/content/copy/account";
 import { commonCopy } from "@/content/copy/common";
 import { getCatalog } from "@/lib/catalog";
-import { formatDate, formatPhone, formatPrice, num, type Lang } from "@/lib/format";
+import { formatDate, formatPct, formatPhone, formatPrice, num, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
 import { requireMember, storeContact } from "@/lib/member";
-import type { CartLine } from "@/lib/order-meta";
+import { orderDiscounts, type CartLine } from "@/lib/order-meta";
 import { getOrder } from "@/lib/orders";
 import { Picture } from "@/components/ui/picture";
 import { StoreContact } from "@/components/account/contact";
@@ -47,6 +47,9 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
     return [{ productId: p.id, variantId: i.variant_id, qty: i.qty }];
   });
   const placed = sp.placed === "1";
+  // what the order was placed with (its own stored rules, never today's settings)
+  const d = orderDiscounts(order);
+  const discounted = d.step > 0 || d.sale !== null;
   const cu = order.customer;
   // carrier and tracking code: inside the last step on phones, a row under the stepper on wider screens
   const shipping = (cls: string) =>
@@ -185,13 +188,11 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
             </tbody>
           </table>
           <dl className="ms-auto mt-6 max-w-sm space-y-2.5 text-sm">
-            {order.list_subtotal > order.subtotal && (
-              <>
-                <Row label={c.subtotal} value={formatPrice(order.list_subtotal, lang)} />
-                <Row label={c.stepDiscount(num(order.pricing.pieces ?? order.items_count, lang))} value={`− ${formatPrice(order.list_subtotal - order.subtotal, lang)}`} />
-              </>
-            )}
-            <Row label={order.list_subtotal > order.subtotal ? c.afterStep : c.subtotal} value={formatPrice(order.subtotal, lang)} />
+            {/* list → «تخفیف تعداد» (every piece of the order together) → the special-day discount → after discounts */}
+            {discounted && <Row label={c.subtotal} value={formatPrice(d.list, lang)} />}
+            {d.step > 0 && <Row label={c.stepDiscount(num(d.pieces, lang), d.stepOff ? formatPct(d.stepOff, lang) : "")} value={`− ${formatPrice(d.step, lang)}`} tone="success" />}
+            {d.sale && <Row label={c.saleDiscount((lang === "en" ? d.sale.en || d.sale.fa : d.sale.fa).trim(), formatPct(d.sale.pct, lang))} value={`− ${formatPrice(d.sale.amount, lang)}`} tone="success" />}
+            <Row label={!discounted ? c.subtotal : d.sale ? c.afterDiscounts : c.afterStep} value={formatPrice(order.subtotal, lang)} />
             <Row label={c.shipping} value={order.shipping_fee > 0 ? formatPrice(order.shipping_fee, lang) : c.shippingNone} />
             {order.discount > 0 && <Row label={c.discount} value={`− ${formatPrice(order.discount, lang)}`} />}
             <div className="flex items-baseline justify-between gap-6 border-t border-line pt-3.5">
@@ -244,11 +245,11 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, tone }: { label: string; value: string; tone?: "success" }) {
   return (
     <div className="flex items-baseline justify-between gap-6">
-      <dt className="text-muted">{label}</dt>
-      <dd className="text-ink-2 tabular-nums">{value}</dd>
+      <dt className={tone === "success" ? "text-success" : "text-muted"}>{label}</dt>
+      <dd className={`shrink-0 tabular-nums ${tone === "success" ? "text-success" : "text-ink-2"}`}>{value}</dd>
     </div>
   );
 }

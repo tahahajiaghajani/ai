@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef, useState, ViewTransition, type CSSPropertie
 import { commonCopy } from "@/content/copy/common";
 import { productCopy } from "@/content/copy/product";
 import type { Product } from "@/lib/catalog-types";
-import { num, type Lang } from "@/lib/format";
+import { basketPieces } from "@/lib/basket";
+import { formatPct, num, type Lang } from "@/lib/format";
+import { stepReached } from "@/lib/pricing";
 import { href, t } from "@/lib/i18n";
 import { altOf, mediaUrl, srcSet, type Media } from "@/lib/media";
 import { Picture } from "@/components/ui/picture";
@@ -15,6 +17,7 @@ import { ArchLines } from "@/components/fx/arch-lines";
 import { SplitWords } from "@/components/fx/split-words";
 import { Sparkles } from "@/components/fx/sparkles";
 import { PriceSlot } from "@/components/pro/price-slot";
+import { StepNote } from "@/components/pro/step-note";
 import { CodeInput } from "@/components/pro/code-input";
 import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/pro-bar";
@@ -236,8 +239,11 @@ function Actions({
   const book = usePriceBook();
   const lines = useCart();
   const [added, setAdded] = useState(false);
+  // the quantity discount the last add took the whole order to (0: it stayed on its step)
+  const [addedOff, setAddedOff] = useState(0);
   useEffect(() => {
     setAdded(false);
+    setAddedOff(0);
   }, [variantId]);
 
   if (me === undefined || (me?.pro.active && book === undefined)) return <div className="h-12 bg-bone/70" aria-hidden />;
@@ -250,17 +256,23 @@ function Actions({
     const seed = product.id.startsWith("seed-");
     if (needsVariant) return <p className="font-ui text-sm text-muted">{c.cart.chooseOption}</p>;
     if (stock <= 0) return <p className="text-sm leading-7 text-ink-2">{tr.outOfStock}</p>;
+    // every piece of the order counts towards the quantity discount, whichever design (src/lib/basket.ts)
+    const inBasket = basketPieces(lines);
+    const chosen = Math.min(qty, Math.max(1, room));
     return (
       <div className="space-y-3">
         {/* the button drops under the stepper when its label would not fit beside it */}
         <div className="flex flex-wrap gap-3">
-          <Stepper value={Math.min(qty, Math.max(1, room))} max={Math.max(1, room)} onChange={setQty} lang={lang} />
+          <Stepper value={chosen} max={Math.max(1, room)} onChange={setQty} lang={lang} />
           <button
             type="button"
             disabled={room <= 0 || seed}
             onClick={() => {
-              cart.add(product.id, variantId, Math.min(qty, room));
+              const n = Math.min(qty, room);
+              const reached = stepReached(inBasket, inBasket + n, book.pricing);
+              cart.add(product.id, variantId, n);
               setAdded(true);
+              setAddedOff(reached?.off ?? 0);
               onAdded();
             }}
             className="btn btn-metal min-h-12 flex-[1_0_auto] whitespace-nowrap px-6"
@@ -269,12 +281,13 @@ function Actions({
             {tr.add}
           </button>
         </div>
+        {room > 0 && <StepNote lang={lang} pricing={book.pricing} pieces={inBasket + chosen} chosen={chosen} />}
         {book.showStock && room < stock && room >= 0 && <p className="font-ui text-xs text-muted">{tr.maxStock(num(stock, lang))}</p>}
         {added && (
           <p className="flex animate-fade-in items-center justify-between gap-3 border border-gold/40 bg-gold-mist px-4 py-2.5 font-ui text-sm text-gold-text" role="status">
-            <span className="flex items-center gap-2">
-              <Icon name="check" className="size-4" />
-              {tr.added}
+            <span className="flex items-start gap-2">
+              <Icon name="check" className="mt-1 size-4 shrink-0" />
+              {addedOff ? c.steps.added(formatPct(addedOff, lang)) : tr.added}
             </span>
             <Link href={href(lang, "/account/cart")} className="underline underline-offset-4">
               {tr.viewOrder}

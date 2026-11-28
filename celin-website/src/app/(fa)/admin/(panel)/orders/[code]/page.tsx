@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { requireAdminPage } from "@/lib/admin-auth";
 import { getOrder } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
-import { formatDate, formatNumber, formatPhone, formatPrice, num } from "@/lib/format";
-import { ORDER_STEPS, STATUS_LABEL, type OrderDetail, type OrderEvent } from "@/lib/order-meta";
+import { formatDate, formatNumber, formatPct, formatPhone, formatPrice, num } from "@/lib/format";
+import { ORDER_STEPS, STATUS_LABEL, orderDiscounts, type OrderDetail, type OrderEvent } from "@/lib/order-meta";
 import { Card, LinkButton, PageHeader } from "@/components/admin/ui";
 import { OrderEditCard, OrderStatusActions, PrintButton } from "@/components/admin/orders-detail";
 import { ACTOR_LABEL, Row, StatusBadge, STATUS_TONE, whatsappUrl } from "@/components/admin/sales-ui";
@@ -201,19 +201,33 @@ export default async function OrderPage({ params }: { params: Promise<{ code: st
   );
 }
 
-/** Lines at the price the member saw, then the quantity step («تخفیف تعداد»), then shipping and the admin's discount. */
+/**
+ * Lines at the price the member saw, then the quantity step of the whole order («تخفیف تعداد»), the special-day
+ * discount, shipping and the admin's discount — from what the order stored, never today's settings.
+ */
 function Totals({ order: o }: { order: OrderDetail }) {
-  const step = o.list_subtotal > o.subtotal ? o.list_subtotal - o.subtotal : 0;
+  const d = orderDiscounts(o);
   return (
     <dl className="space-y-1.5 text-sm">
       <div className="flex justify-between gap-4">
         <dt className="text-muted">جمع کالاها</dt>
-        <dd>{formatPrice(step ? o.list_subtotal : o.subtotal, "fa")}</dd>
+        <dd className="shrink-0">{formatPrice(d.list, "fa")}</dd>
       </div>
-      {step > 0 && (
+      {d.step > 0 && (
         <div className="flex justify-between gap-4">
-          <dt className="text-muted">تخفیف تعداد ({num(o.pricing.pieces ?? o.items_count, "fa")} قطعه)</dt>
-          <dd className="text-success">− {formatPrice(step, "fa")}</dd>
+          <dt className="text-muted">
+            تخفیف تعداد {d.stepOff ? `${formatPct(d.stepOff, "fa")} روی کل سفارش ` : ""}
+            <span className="whitespace-nowrap">({num(d.pieces, "fa")} قطعه)</span>
+          </dt>
+          <dd className="shrink-0 text-success">− {formatPrice(d.step, "fa")}</dd>
+        </div>
+      )}
+      {d.sale && (
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted">
+            {d.sale.fa || "تخفیف روزهای خاص"} ({formatPct(d.sale.pct, "fa")})
+          </dt>
+          <dd className="shrink-0 text-success">− {formatPrice(d.sale.amount, "fa")}</dd>
         </div>
       )}
       <div className="flex justify-between gap-4">
@@ -362,7 +376,7 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
       </table>
 
       {/* same face as the table above (tables use the dense numeric font) */}
-      <div className="mt-4 ms-auto w-72 font-dense">
+      <div className="mt-4 ms-auto w-96 font-dense">
         <Totals order={o} />
       </div>
 

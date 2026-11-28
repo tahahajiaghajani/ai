@@ -52,7 +52,22 @@ export const common = {
       currency: "تومان",
       was: "قیمت اصلی:",
       now: "قیمت با تعداد این سفارش:",
-      atPieces: (n: string) => `قیمت هر قطعه با ${n} قطعه در سفارش`,
+      nowSale: "قیمت با تخفیف:",
+      atPieces: (n: string, off: string) => `${n} قطعه در سفارش · ${off} تخفیف روی کل سفارش`,
+    },
+    // the quantity discount while choosing and in the basket (src/components/pro/step-note.tsx)
+    steps: {
+      reached: (off: string) => `سفارش شما به ${off} تخفیف تعداد رسید.`,
+      reachedChoosing: (off: string) => `با این تعداد، کل سفارش شما ${off} تخفیف تعداد می‌گیرد.`,
+      next: (more: string, off: string) => `با ${more} قطعه‌ی دیگر از هر اثری، کل سفارش ${off} تخفیف می‌گیرد.`,
+      added: (off: string) => `به سفارش اضافه شد؛ سفارش شما اکنون ${off} تخفیف تعداد دارد.`,
+    },
+    // the special-day discount (its title is the admin's own; this is the site's label without one)
+    sale: {
+      label: "تخفیف روزهای خاص",
+      off: (p: string) => `${p} تخفیف`,
+      plain: (p: string) => `${p} تخفیف روزهای خاص`,
+      line: (title: string, p: string) => (title ? `${title} · ${p} تخفیف` : `${p} تخفیف روزهای خاص`),
     },
     stock: {
       in: "موجود",
@@ -191,7 +206,20 @@ export const common = {
       currency: "Toman",
       was: "Original price:",
       now: "Price at this order's quantity:",
-      atPieces: (n: string) => (n === "1" ? "Per piece with 1 piece in your order" : `Per piece with ${n} pieces in your order`),
+      nowSale: "Discounted price:",
+      atPieces: (n: string, off: string) => `${n} ${n === "1" ? "piece" : "pieces"} in your order · ${off} off the whole order`,
+    },
+    steps: {
+      reached: (off: string) => `Your order has reached a ${off} quantity discount.`,
+      reachedChoosing: (off: string) => `With this quantity, your whole order gets a ${off} quantity discount.`,
+      next: (more: string, off: string) => `${more} more ${more === "1" ? "piece" : "pieces"} of any design and the whole order gets ${off} off.`,
+      added: (off: string) => `Added — your order now has a ${off} quantity discount.`,
+    },
+    sale: {
+      label: "Special-day discount",
+      off: (p: string) => `${p} off`,
+      plain: (p: string) => `${p} special-day discount`,
+      line: (title: string, p: string) => (title ? `${title} · ${p} off` : `${p} special-day discount`),
     },
     stock: {
       in: "In stock",

@@ -6,11 +6,13 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { placeOrder } from "@/app/actions/orders";
 import { accountCopy } from "@/content/copy/account";
 import { commonCopy } from "@/content/copy/common";
-import { formatPrice, latinDigits, normalizePhone, num, type Lang } from "@/lib/format";
+import { formatDate, formatPct, formatPrice, latinDigits, normalizePhone, num, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
 import { MAX_QTY, type CartLine } from "@/lib/order-meta";
-import { atPct, invoice, listPrice, nextStep } from "@/lib/pricing";
+import { invoiceLines, piecePrice } from "@/lib/basket";
+import { invoice, listPrice, unitAt } from "@/lib/pricing";
+import { saleTitle } from "@/lib/sale";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 import { cart, useCart } from "@/components/cart/cart-store";
@@ -19,6 +21,7 @@ import { ProSeal } from "@/components/pro/seal";
 import { ProSteps } from "@/components/pro/steps";
 import { LuxFrame } from "@/components/ui/lux-frame";
 import { stockBand } from "@/components/pro/price-slot";
+import { StepNote } from "@/components/pro/step-note";
 import { sessionChanged, useHydrated, useMe, usePriceBook, type PriceBook } from "@/components/pro/session";
 import { Swatch } from "@/components/shop/swatch";
 import { StoreContact, type StoreContactInfo } from "@/components/account/contact";
@@ -70,7 +73,7 @@ function view(lines: CartLine[], products: Map<string, CartProduct>, book: Price
     const vp = line.variantId ? pp?.variants[line.variantId] : undefined;
     const gone = !product || !pp || (line.variantId ? !variant || !vp : false);
     const needsVariant = !gone && !line.variantId && (product!.variants.length > 0 || Object.keys(pp!.variants).length > 0);
-    const price = gone ? null : vp ? vp.price ?? pp!.price : pp!.price;
+    const price = gone ? null : (piecePrice(book.prices, line) ?? null);
     const stock = gone ? 0 : vp ? vp.stock : pp!.stock;
     const problem: Problem = gone ? "gone" : needsVariant ? "variant" : stock <= 0 ? "out" : line.qty > stock ? "over" : price === null ? "noPrice" : null;
     return { line, product, variant, price, stock, problem };
@@ -162,13 +165,17 @@ export function CartView({
   }
 
   const rows = view(lines, products, book);
-  // the invoice exactly as the order will be placed (src/lib/pricing.ts): lines at the list price, then the step
+  // the invoice exactly as the order will be placed (src/lib/basket.ts, src/lib/pricing.ts): the lines at the list
+  // price, the step of every piece of the order together, then the special-day discount
   const bill = invoice(
-    rows.filter((r) => r.problem !== "gone").map((r) => ({ price: r.price, qty: r.line.qty })),
+    invoiceLines(
+      rows.filter((r) => r.problem !== "gone").map((r) => r.line),
+      book.prices,
+    ),
     book.pricing,
   );
-  const pieces = lines.reduce((n, l) => n + l.qty, 0);
-  const next = nextStep(bill.pieces, book.pricing);
+  const sale = book.pricing.sale;
+  const saleEnd = sale?.until ? formatDate(new Date(Date.parse(sale.until) - 1).toISOString(), lang) : "";
   const belowMin = book.minOrder > 0 && bill.total < book.minOrder;
   const blocked = rows.some((r) => r.problem) || belowMin;
 
@@ -236,24 +243,31 @@ export function CartView({
   return (
     <form onSubmit={submit} noValidate className="max-w-3xl space-y-12">
       <section aria-label={c.title}>
-        <p className="mb-3 text-sm text-muted">{c.lines(num(pieces, lang))}</p>
+        <p className="mb-3 text-sm text-muted">{c.lines(num(bill.pieces, lang))}</p>
         <ul className="border-t border-line">
           {rows.map((r) => (
-            <Line key={key(r.line)} r={r} lang={lang} book={book} pct={bill.pct} flagged={Boolean(badItem && (r.line.productId === badItem || r.line.variantId === badItem))} />
+            <Line key={key(r.line)} r={r} lang={lang} book={book} pct={bill.pct} sale={bill.sale} flagged={Boolean(badItem && (r.line.productId === badItem || r.line.variantId === badItem))} />
           ))}
         </ul>
+        {/* list → «تخفیف تعداد» (every piece of the order together) → the special-day discount → what is charged */}
         <dl className="mt-6 space-y-2">
+          {(bill.stepDiscount > 0 || bill.saleDiscount > 0) && (
+            <div className="flex items-baseline justify-between gap-6">
+              <dt className="text-sm text-ink-2">{c.listTotal}</dt>
+              <dd className="text-sm text-ink-2 tabular-nums">{formatPrice(bill.list, lang)}</dd>
+            </div>
+          )}
           {bill.stepDiscount > 0 && (
-            <>
-              <div className="flex items-baseline justify-between gap-6">
-                <dt className="text-sm text-ink-2">{c.listTotal}</dt>
-                <dd className="text-sm text-ink-2 tabular-nums">{formatPrice(bill.list, lang)}</dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-6">
-                <dt className="text-sm text-success">{c.stepDiscount(num(bill.pieces, lang))}</dt>
-                <dd className="text-sm text-success tabular-nums">− {formatPrice(bill.stepDiscount, lang)}</dd>
-              </div>
-            </>
+            <div className="flex items-baseline justify-between gap-6">
+              <dt className="text-sm text-success">{c.stepDiscount(num(bill.pieces, lang), formatPct(bill.off, lang))}</dt>
+              <dd className="shrink-0 text-sm text-success tabular-nums">− {formatPrice(bill.stepDiscount, lang)}</dd>
+            </div>
+          )}
+          {bill.saleDiscount > 0 && sale && (
+            <div className="flex items-baseline justify-between gap-6">
+              <dt className="text-sm text-success">{c.saleDiscount(saleTitle(sale, lang), formatPct(bill.sale, lang))}</dt>
+              <dd className="shrink-0 text-sm text-success tabular-nums">− {formatPrice(bill.saleDiscount, lang)}</dd>
+            </div>
           )}
           <div className="flex items-baseline justify-between gap-6">
             <dt className="text-sm text-ink-2">{c.subtotal}</dt>
@@ -261,7 +275,9 @@ export function CartView({
           </div>
         </dl>
         <p className="mt-1 text-xs leading-6 text-muted">{c.subtotalNote}</p>
-        {next && <p className="mt-3 text-sm leading-7 text-gold-text">{c.nextStep(num(next.more, lang))}</p>}
+        {book.pricing.steps.length > 0 && <p className="text-xs leading-6 text-muted">{c.stepsNote}</p>}
+        {sale && c.saleNote(saleEnd, book.pricing.steps.length > 0) && <p className="text-xs leading-6 text-muted">{c.saleNote(saleEnd, book.pricing.steps.length > 0)}</p>}
+        <StepNote lang={lang} pricing={book.pricing} pieces={bill.pieces} className="mt-3 text-sm! leading-7!" />
         {belowMin && (
           <div className="mt-5">
             <FormNote tone="info">
@@ -323,10 +339,13 @@ export function CartView({
   );
 }
 
-/** One line: the original price struck through and the price at the order's quantity step under it (members), the line at that price. */
-function Line({ r, lang, book, pct, flagged }: { r: LineView; lang: Lang; book: PriceBook; pct: number; flagged: boolean }) {
+/**
+ * One line: the original price struck through and the price at the order's quantity step (less the special-day
+ * discount while it runs) beside it, the line at that price.
+ */
+function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; book: PriceBook; pct: number; sale: number; flagged: boolean }) {
   const list = r.price === null ? null : listPrice(r.price, book.pricing);
-  const now = r.price === null ? null : atPct(r.price, pct);
+  const now = r.price === null ? null : unitAt(r.price, pct, sale);
   const stepped = list !== null && now !== null && now < list;
   const was = commonCopy(lang).price;
   const c = accountCopy(lang).cart;

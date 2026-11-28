@@ -1,6 +1,6 @@
-import { accountCopy, type LevelsInfo } from "@/content/copy/account";
-import { formatPrice, num, type Lang } from "@/lib/format";
-import { pricingFor, type PricingSettings } from "@/lib/pricing";
+import { accountCopy } from "@/content/copy/account";
+import { num, type Lang } from "@/lib/format";
+import { levelsInfo } from "@/lib/levels";
 import { getSettings } from "@/lib/settings";
 import { getSlots, slotText } from "@/lib/slots";
 import type { CSSProperties, ReactNode } from "react";
@@ -14,6 +14,7 @@ import { Magnetic } from "@/components/fx/magnetic";
 import { SplitWords } from "@/components/fx/split-words";
 import { ProHallmark } from "@/components/pro/seal";
 import { Membership } from "@/components/account/membership";
+import { DiscountLadder } from "@/components/account/discount-ladder";
 import { HaveCodeButton } from "@/components/account/have-code";
 
 /** A quiet section head of the inner pages: a rhombus eyebrow, then the section title. */
@@ -32,21 +33,6 @@ function Head({ id, eyebrow, title, center = false }: { id: string; eyebrow: str
 }
 
 /**
- * The settings behind the page's words (src/lib/pricing.ts): the members' price as a multiple of the wholesale
- * price, whether invoices step down by pieces, and the Pro window and threshold. Never prices themselves.
- */
-function levelsInfo(pro: PricingSettings & { proThreshold: number; proDays: number }, lang: Lang): LevelsInfo {
-  const member = pricingFor("member", pro);
-  const times = member.listPct > 100 ? new Intl.NumberFormat(lang === "fa" ? "fa-IR" : "en-US", { maximumFractionDigits: 2 }).format(member.listPct / 100) : null;
-  return {
-    times,
-    steps: member.steps.length > 0,
-    days: num(pro.proDays, lang),
-    threshold: pro.proThreshold > 0 && pro.proDays > 0 ? formatPrice(pro.proThreshold, lang) : null,
-  };
-}
-
-/**
  * /pro «عضویت و Pro» — static and identical for everyone; only the request block (#request) reads the visitor's
  * session. It explains the two levels: membership (request → approval → membership code → stock and members'
  * prices, lower invoices with more pieces) and Pro (automatic past the threshold → the wholesale price).
@@ -59,7 +45,7 @@ export async function ProPage({ lang }: { lang: Lang }) {
   const benefits = c.benefits(levels);
   // membership, the quantity discount (when there are steps), Pro
   const icons: IconName[] = levels.steps ? ["users", "box", "diamond"] : ["users", "diamond"];
-  const faq = [...c.faq(levels), { q: c.minQ, a: settings.shop.minOrder > 0 ? c.minYes : c.minNo }];
+  const faq = [...c.faq(levels), ...(levels.steps ? [c.faqSteps(levels)] : []), { q: c.minQ, a: settings.shop.minOrder > 0 ? c.minYes : c.minNo }];
   return (
     <main>
       <section data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night text-on-night">
@@ -115,6 +101,14 @@ export async function ProPage({ lang }: { lang: Lang }) {
               </li>
             ))}
           </ul>
+          {/* the quantity discount in full: the ladder of the settings (percentages only, never prices), its rules, Pro */}
+          {levels.steps && (
+            <div id="discounts" className="mt-16 scroll-mt-28" data-reveal>
+              <LuxFrame className="bg-porcelain/80 px-7 py-9 sm:px-10 sm:py-10">
+                <DiscountLadder lang={lang} levels={levels} wide />
+              </LuxFrame>
+            </div>
+          )}
         </div>
       </section>
 
