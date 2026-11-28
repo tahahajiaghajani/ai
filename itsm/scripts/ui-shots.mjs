@@ -2,8 +2,8 @@
 // or uses a server that is already running (--base) — makes sure there is an owner, an organisation and a second
 // member (through the API: first-run sign-up, or sign-in), signs in through the login form with Playwright and
 // screenshots every page in light and dark (1440 × 900) plus a phone (375 × 812). Writes PNGs and report.json (console
-// errors, page errors, failed API calls, horizontal scroll per page) into the output folder and exits with 1 when any
-// page has a problem.
+// errors, page errors, failed API calls, horizontal scroll, a form field or segmented option outside its form section
+// per page) into the output folder and exits with 1 when any page has a problem.
 //
 //   node scripts/ui-shots.mjs [--base http://127.0.0.1:3939] [--email … --password …] [--port 4102] [--out <dir>]
 //        [--paths a,b,c] [--themes light,dark] [--mobile a,b | --no-mobile] [--no-build] [--keep-server]
@@ -265,9 +265,28 @@ async function main() {
       }
       await page.waitForTimeout(350);
       entry.final_url = new URL(page.url()).pathname + new URL(page.url()).search;
-      const facts = await page.evaluate(() => ({ hscroll: document.documentElement.scrollWidth > window.innerWidth + 1, text: (document.getElementById("root")?.innerText ?? "").trim().length }));
+      const facts = await page.evaluate(() => {
+        // a form field, or an option of a segmented choice, that runs out of its form section: drawn over the panel's
+        // edge or off the screen (the record grid's 23 column gaps on a phone, a choice in a narrow side panel). One
+        // inside a scroller of its own below the section is reachable and not counted.
+        const outside = [];
+        for (const sec of document.querySelectorAll(".rk-sec")) {
+          const s = sec.getBoundingClientRect();
+          if (!s.width) continue;
+          for (const el of sec.querySelectorAll(".rk-f, .ant-segmented-item")) {
+            let scrolls = false;
+            for (let p = el.parentElement; p && p !== sec && !scrolls; p = p.parentElement) scrolls = /^(auto|scroll)$/.test(getComputedStyle(p).overflowX);
+            const r = el.getBoundingClientRect();
+            if (scrolls || !r.width || (r.left >= s.left - 1 && r.right <= s.right + 1)) continue;
+            const label = (el.querySelector(".rk-f-l")?.textContent ?? el.textContent ?? "").trim().slice(0, 40);
+            outside.push(`«${label}» ${Math.round(r.left)}..${Math.round(r.right)} in ${Math.round(s.left)}..${Math.round(s.right)}`);
+          }
+        }
+        return { hscroll: document.documentElement.scrollWidth > window.innerWidth + 1, text: (document.getElementById("root")?.innerText ?? "").trim().length, outside };
+      });
       if (facts.hscroll) entry.flags.push("horizontal scroll");
       if (!facts.text) entry.flags.push("empty page");
+      if (facts.outside.length) entry.flags.push(`${facts.outside.length} outside their form section: ${facts.outside.slice(0, 3).join("; ")}`);
       const slug = `${job.variant}-${job.theme}-${(job.path || "home").replace(/^\//, "").replace(/[^a-z0-9]+/gi, "_") || "root"}`;
       entry.file = `${slug}.png`;
       await page.screenshot({ path: join(OUT, entry.file) });
