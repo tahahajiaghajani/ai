@@ -2,6 +2,7 @@
 export const homeCopy = {
   fa: {
     all: "همه‌ی زیورآلات",
+    hero: { region: "تصاویر سرآغاز", prev: "تصویر قبلی", next: "تصویر بعدی", picture: "تصویر", of: "از" },
     statement: { eyebrow: "ظرافت، کیفیت، اصالت", seal: "سلین" },
     arcade: { eyebrow: "مجموعه‌ها", title: "مجموعه‌های سلین", all: "همه‌ی مجموعه‌ها", discover: "کشف مجموعه", soon: "به‌زودی" },
     featured: { eyebrow: "آثار برگزیده", title: "درخششی برای هر روز و هر شب", all: "همه‌ی زیورآلات" },
@@ -11,6 +12,7 @@ export const homeCopy = {
   },
   en: {
     all: "All jewelry",
+    hero: { region: "Opening pictures", prev: "Previous picture", next: "Next picture", picture: "Picture", of: "of" },
     statement: { eyebrow: "Finesse, quality, authenticity", seal: "CELIN" },
     arcade: { eyebrow: "Collections", title: "The CELIN collections", all: "All collections", discover: "Discover", soon: "Coming soon" },
     featured: { eyebrow: "Signature pieces", title: "Brilliance for every day and every night", all: "All jewelry" },

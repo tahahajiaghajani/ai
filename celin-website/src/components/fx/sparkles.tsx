@@ -203,7 +203,12 @@ export function Sparkles({ count = 14, intensity = 1, className = "" }: { count?
       visible = inView && document.visibilityState === "visible";
       start();
     });
-    const ro = new ResizeObserver(() => size());
+    // a box that glides (the turning home arcade) changes size every frame: the canvas follows once it has settled
+    let resizeId = 0;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(resizeId);
+      resizeId = window.setTimeout(size, 150);
+    });
     // the first analysis waits for an idle moment (it reads pixels), never in the middle of a scroll
     const ric = typeof requestIdleCallback === "function";
     const idle = (fn: () => void): number => (ric ? requestIdleCallback(fn, { timeout: 1500 }) : (setTimeout(fn, 200) as unknown as number));
@@ -238,6 +243,7 @@ export function Sparkles({ count = 14, intensity = 1, className = "" }: { count?
 
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(resizeId);
       unidle(idleId);
       io.disconnect();
       ro.disconnect();

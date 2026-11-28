@@ -4,18 +4,16 @@ import Link from "next/link";
 import { useRef, type CSSProperties } from "react";
 import type { Lang } from "@/lib/format";
 import { href } from "@/lib/i18n";
-import { mediaUrl, type Media } from "@/lib/media";
+import type { Media } from "@/lib/media";
 import type { Video } from "@/lib/video";
-import { Arch } from "@/components/fx/arch";
-import { ArchLines } from "@/components/fx/arch-lines";
 import { Aura } from "@/components/fx/aura";
 import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
 import { SplitWords } from "@/components/fx/split-words";
-import { SlotVideo } from "@/components/fx/slot-video";
 import { gsap } from "@/components/fx/gsap";
 import { useGsap } from "@/components/fx/use-gsap";
 import { usePointerDepth } from "@/components/fx/use-pointer-depth";
+import { HeroArcade, type HeroLabels } from "@/components/home/hero-arcade";
 import { Icon } from "@/components/ui/icons";
 import { latinMarks } from "@/content/copy/common";
 
@@ -26,15 +24,19 @@ export interface HeroData {
   cta: string;
   href: string;
   all: string;
-  a: { media: Media; mobile: Media | null; video?: Video | null };
-  b: Media;
-  c: Media;
+  /** the turning pictures, in order (at least three; the first opens in the centre) */
+  pictures: Media[];
+  /** the first picture's phone version and video */
+  mobile: Media | null;
+  video?: Video | null;
+  labels: HeroLabels;
 }
 
 /**
  * The opening: a triple arcade (a tall central arch between two lower ones, on one sill) over living
- * espresso-and-paraiba light. After the intro the arches fill from the crown down, the arcade lines draw,
- * the words rise; the layers lean with the pointer and part at different speeds as the page scrolls.
+ * espresso-and-paraiba light, turning through the opening pictures (HeroArcade). After the intro the arches fill
+ * from the crown down, the arcade lines draw, the words rise; the layers lean with the pointer and part at
+ * different speeds as the page scrolls.
  */
 export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
   const root = useRef<HTMLElement>(null);
@@ -43,14 +45,15 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
   // pointer depth: each layer leans by its data-depth (live with the motion preference)
   usePointerDepth(depth);
 
-  // scroll: the arcade parts — sides drift out, the centre rises slower, the words lift away
+  // scroll: the arcade parts — sides drift out, the centre rises slower, the words lift away. The arches turn, so
+  // their parting is one --part on the stage times each arch's own weights (globals.css .hero-item)
   useGsap(
     () => {
       const st = { trigger: root.current, start: "top top", end: "bottom top", scrub: 0.6 };
-      gsap.to("[data-part='start']", { xPercent: lang === "fa" ? 18 : -18, yPercent: 8, opacity: 0.35, ease: "none", scrollTrigger: st });
-      gsap.to("[data-part='end']", { xPercent: lang === "fa" ? -18 : 18, yPercent: 8, opacity: 0.35, ease: "none", scrollTrigger: st });
-      gsap.to("[data-part='centre']", { yPercent: -6, scale: 1.04, ease: "none", scrollTrigger: st });
+      gsap.fromTo("[data-hero-stage]", { "--part": 0 }, { "--part": 1, ease: "none", scrollTrigger: st });
       gsap.to("[data-part='copy']", { yPercent: -28, opacity: 0, ease: "none", scrollTrigger: { ...st, end: "70% top" } });
+      // the arcade's controls go first: on phones the rising words pass where they sit
+      gsap.to("[data-hero-controls]", { autoAlpha: 0, ease: "none", scrollTrigger: { ...st, end: "20% top" } });
       gsap.to("[data-part='lines']", { scale: 1.12, opacity: 0.3, ease: "none", scrollTrigger: st });
     },
     root,
@@ -65,28 +68,16 @@ export function HomeHero({ lang, d }: { lang: Lang; d: HeroData }) {
       <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[24vh] bg-gradient-to-b from-transparent to-night" />
       <div ref={depth} className="container-lux relative grid min-h-[calc(100svh-var(--announce-h,0px))] grid-rows-[auto_1fr] gap-y-6 pt-[calc(var(--header-h)+2rem)] pb-10 lg:grid-cols-12 lg:grid-rows-1 lg:items-center lg:gap-x-8 lg:pb-0">
         {/* the arcade */}
-        <div className="relative order-1 mx-auto w-full max-w-[560px] lg:order-2 lg:col-span-7 lg:max-w-none lg:self-end lg:pb-[6.5vh]">
-          <div className="relative flex items-end justify-center gap-[3.5%]">
-            <div data-part="lines" className="pointer-events-none absolute inset-x-[-20%] bottom-0 top-[-16%] origin-bottom" data-depth="-4">
-              <ArchLines count={5} tone="champagne" immediate delay={100} className="size-full" />
-            </div>
-            <div data-part="start" className="w-[27.5%]" data-depth="14">
-              <Arch media={d.b} lang={lang} sizes="(min-width: 1024px) 17vw, 26vw" ring="champagne" unveil afterIntro delay={350} sparkle={6} className="[--ring-gap:8px]" />
-            </div>
-            <div data-part="centre" className="w-[45%] origin-bottom" data-depth="7" data-cursor="view">
-              <Link href={href(lang, d.href)} aria-label={d.cta} className="block">
-                <Arch media={d.a.media} mobile={d.a.mobile} lang={lang} sizes="(min-width: 1024px) 27vw, 45vw" ratio="3/4.3" priority ring="champagne" keystone unveil afterIntro delay={150} sparkle={14}>
-                  {d.a.video && <SlotVideo video={d.a.video} poster={mediaUrl(d.a.media, 960)} position={`${d.a.media.fx}% ${d.a.media.fy}%`} />}
-                </Arch>
-              </Link>
-            </div>
-            <div data-part="end" className="w-[27.5%]" data-depth="14">
-              <Arch media={d.c} lang={lang} sizes="(min-width: 1024px) 17vw, 26vw" ring="champagne" unveil afterIntro delay={500} sparkle={6} className="[--ring-gap:8px]" />
-            </div>
-          </div>
-          {/* the sill */}
-          <span aria-hidden className="mx-auto mt-0 block h-px w-[110%] -translate-x-[4.5%] bg-[image:var(--metal-champagne)] opacity-60 rtl:translate-x-[4.5%]" />
-        </div>
+        <HeroArcade
+          lang={lang}
+          pictures={d.pictures}
+          mobile={d.mobile}
+          video={d.video ?? null}
+          href={href(lang, d.href)}
+          cta={d.cta}
+          labels={d.labels}
+          className="relative order-1 mx-auto w-full max-w-[560px] lg:order-2 lg:col-span-7 lg:max-w-none lg:self-end lg:pb-[6.5vh]"
+        />
 
         {/* the words */}
         <div data-part="copy" className="relative order-2 text-center lg:order-1 lg:col-span-5 lg:text-start">
