@@ -30,8 +30,8 @@
 // Assertions marked «1.1.5 (b)…(g)», RC1–RC4 assert behaviour this release adds (CaseDetail.waiting, the reresolve route,
 // journal notes, estimate demo counts, eligibility-first requester_unit_up, the timer path's demo scope, approve plus
 // skip journal text): the engine's and the screens' 1.1.5 work makes them pass. Those marked NB1–NB4, OB1 and BH1
-// assert what the scenario plan expects of behaviour no package of this release changes (reported with the run): they
-// fail until it is fixed.
+// assert what the scenario plan expected of behaviour the scenarios' first runs found wrong (reported with the run):
+// 1.1.5's fixes make them pass too.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

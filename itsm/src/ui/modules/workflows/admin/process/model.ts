@@ -468,6 +468,14 @@ export function earlierSteps(g: ProcessGraph, id: string): { id: string; label: 
  */
 export const waitsInBusinessTime = (config: unknown): boolean => isObj(config) && config.business === true;
 
+/**
+ * Does a form step keep a time — «مهلت انجام», «یادآوری هر» or «تشدید»? Its «به وقت کاری» counts all three (the
+ * engine's process.timer: the deadline, the escalations and, since 1.1.5, the reminders), so the switch is offered
+ * whenever one is set, not only with a deadline.
+ */
+export const keepsTime = (step: { due?: unknown; remind_every?: unknown; escalate?: readonly unknown[] | null }): boolean =>
+  !!(step.due || step.remind_every || step.escalate?.length);
+
 /** «پیوستن»: after every branch, or after the first (which must withdraw the others). */
 export const joinPatch = (mode: "all" | "any"): Record<string, unknown> => (mode === "any" ? { mode, cancel_rest: true } : { mode, cancel_rest: undefined });
 
