@@ -1,19 +1,26 @@
 // The owner's path of release 1.1.5, clicked through the real screens (the «کسی پیدا نشد» report): on a fresh database the
-// owner loads the bank demo pack from «داده‌های نمایشی», builds library fields («فیلدها»), a process form with two tabs
+// owner loads the bank demo pack from «داده‌های نمایشی», adds six real members on «کاربران و دسترسی‌ها», then builds —
+// twice, as variants A and B with names of their own — library fields («فیلدها»), a process form with two tabs
 // («فرم‌ها»), two organisational roles with two holders each («نقش‌های سازمانی») and a workflow in the designer
 // (start form → «مرحلهٔ فرم» by «مدیر گروه» with the designer's default scope → an approval by «کارشناس ارشد» → end),
-// publishes it, and the people run it from «گردش‌کارها» — twice:
-//   A  the owner's exact case: the holders are the demo pack's people and the requester a demo persona (the pack's
+// publishes each, and the people run them from «گردش‌کارها»:
+//   A  the owner's exact case: A's holders are the demo pack's people and the requester a demo persona (the pack's
 //      shared sign-in, read from the demo page);
-//   B  the same with real members the owner adds on «کاربران و دسترسی‌ها»;
+//   B  B's holders and requester are the real members;
 //   C  the owner (a real person) starts A's workflow: the case page shows the waiting panel with its reason, the owner
 //      adds a real holder to «مدیر گروه», «دوباره پیدا کردن انجام‌دهنده» gives the step to that holder, who completes it.
 // Then «حذف کامل داده‌های نمایشی» (the preview's lists, the typed confirmation, the progress) and the checks after it:
 // B's workflow and finished case intact, A's workflow per the 1.1.5 rule, every workflow, form, field, roles, members
-// and demo page without a console error, a 4xx/5xx other than a 403 or a crash screen, and B started and finished again.
+// and demo page without a console error, a 4xx/5xx other than a 403 or a crash screen, and the owner starts B's
+// workflow again and its real holders finish it.
 // Everything is done through the screens; the HTTP API is only read (with the person's own session) to assert state.
+// The owner's guide to running it: docs/qa/OWNER_PATH_FA.md.
 //
-// How to run (from itsm/, after `npm run build:ui` — the script serves public/ and never builds):
+// Needs Playwright with its Chromium, a tool of this script and not a dependency of the app (as CI's clickthrough job
+// gets it: npm install --no-save playwright@1.63.0 && npx playwright install chromium), and for the server and web
+// editions PostgreSQL 16's programs (--pg-bin).
+// How to run (from itsm/, after `npm run build:ui` — the script serves public/ and never builds the UI; the web edition
+// runs `next build` itself):
 //   node scripts/e2e-owner-path.mjs --edition desktop --out /tmp/e2e/desktop
 //        the Windows flavour: the local server (src/desktop/server.ts through scripts/ui-shots.mjs --serve-internal)
 //        on a fresh PGlite data folder
@@ -27,11 +34,15 @@
 //        Supavisor emulator (tests/web-db-pooler.ts) in front of a throwaway PostgreSQL cluster (initdb as --pg-user,
 //        schema by scripts/migrate-db.mts); jobs run from the app's own traffic and GET /api/cron/tick once a minute
 //        (Supabase pg_cron's heartbeat); the owner signs up on /signup and makes the organisation on /orgs/new
+// --pg-dir is a throwaway folder: one that exists is emptied only when it is an earlier run's (its .e2e-owner-path mark
+// or a server edition's kariz.json) and anything else in it stops the script; at the end only a marked folder is deleted.
 // Options: --port N (default 4471 desktop / 4472 server / 4473 web), --keep (leave the server and data), --size small|medium,
 //          --base URL (a server already running: setup and data are whatever it has; for re-runs of the later steps),
-//          --from <step> / --until <step> (with --base and the state file of an earlier run in --out).
+//          --from <step> / --until <step> (with --base and the state file of an earlier run in --out), --timeout ms
+//          (one UI wait, default 90000), --static dir (the UI build served, default public).
 // Output in --out: NN-*.png (deviceScaleFactor 2, 1440 wide), REPORT.md (step, edition, pass/fail, what was seen,
-// findings with evidence), summary.json, server.log. Exit 1 when a step failed or a product finding was recorded.
+// findings with evidence), summary.json, server.log (the web edition also postgres.log and its pooler.mts), and for a
+// re-run with --from state.json and sessions/. Exit 1 when a step failed or a product finding was recorded.
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync, readdirSync, statSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
