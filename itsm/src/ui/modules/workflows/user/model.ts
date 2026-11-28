@@ -294,6 +294,18 @@ export function caseStateView(state: string, pausedAt?: string | null): { label:
 
 export const isOpenCase = (state: string): boolean => state === "active" || state === "waiting" || state === "attention";
 
+/**
+ * The process form's columns follow its own width, not the window's (user.css: a container query on `.wfu-form`):
+ * narrower than `one` px — the case page's side panel, a phone, a dialog — every field takes the whole row; narrower
+ * than `two` px at most two fields share a row; wider, each field keeps the span its form gives it (24 columns). The
+ * record pages' rules by the window (records.css) still apply on top.
+ */
+export const FORM_COLUMNS = { one: 560, two: 860 } as const;
+
+/** The columns (of 24) a field of `span` takes in a process form `width` px wide (see FORM_COLUMNS). */
+export const formFieldSpan = (span: number, width: number): number =>
+  width < FORM_COLUMNS.one ? 24 : width < FORM_COLUMNS.two ? Math.max(12, span) : span;
+
 export type ChannelState = "done" | "current" | "mine" | "future";
 
 /** The state channel of the header: the case's form steps in order (those passed by left out), then «پایان». */
