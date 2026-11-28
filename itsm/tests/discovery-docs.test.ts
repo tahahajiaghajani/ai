@@ -86,3 +86,25 @@ describe("the data sources' guide lists every message", () => {
     for (const part of parts) expect(troubleshooting, `«${part}» is not in the troubleshooting table`).toContain(part);
   });
 });
+
+describe("an abandoned snapshot's remedy in the guide", () => {
+  // snapshotStep (src/server/modules/discovery/push.ts) never finalises a snapshot id one of whose parts is abandoned: a
+  // part sent later under it is staged and stays «در انتظار» for ever (tests/discovery-push.test.ts). Both rows of an
+  // abandoned snapshot send the whole of it again under a new snapshot.id, never under the same one (the 24-hour row
+  // said «همهٔ بخش‌ها را با همان `snapshot.id` بفرستید»), and the API's paragraph gives each snapshot an id of its own.
+  const rowOf = (message: string) => GUIDE.split("\n").find((l) => l.startsWith("|") && norm(l).includes(norm(message)));
+  it.each([
+    ["push.snapshotAbandoned", PUSH_MESSAGES.snapshotAbandoned],
+    ["push.snapshotFailed", PUSH_MESSAGES.snapshotFailed],
+  ])("%s: sent again whole under a new snapshot.id", (_name, message) => {
+    const row = rowOf(message);
+    expect(row, `no troubleshooting row quotes «${message}»`).toBeDefined();
+    const remedy = norm(row!.split("|").at(-2) ?? "");
+    expect(remedy).toContain(norm("`snapshot.id` تازه"));
+    expect(remedy).not.toContain(norm("همان `snapshot.id`"));
+  });
+  it("the push API's snapshot paragraph gives every snapshot an id of its own", () => {
+    const para = norm(GUIDE.split("\n").find((l) => l.startsWith("**تصویر کامل:**")) ?? "");
+    expect(para).toContain(norm("هر تصویر کامل `snapshot.id` تازهٔ خودش را دارد"));
+  });
+});
