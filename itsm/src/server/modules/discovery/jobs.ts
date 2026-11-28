@@ -269,6 +269,13 @@ export function installDiscoveryJobs(): void {
       jctx.log.warn("discovery sweep failed", String((e as Error)?.message ?? e));
       return { again: sweepEveryMs(jctx.cfg) };
     }
+  }, {
+    // nor does a worker that stopped at its last attempt: the next round is queued (an organisation-wide job, outside
+    // any demo scope, as the connector jobs queue it)
+    onExhausted: async (job, ectx) => {
+      if (!job.org_id || editionOf({ mode: ectx.cfg.mode ?? "cloud", server: ectx.cfg.server }) === "desktop") return;
+      await inDemoScope(null, () => ensureSweepIn(ectx.db, job.org_id!, sweepEveryMs(ectx.cfg)));
+    },
   });
   registerJobHandler(JOB_KINDS.pull, async (job, jctx) => {
     const a = await admitted(job, jctx);

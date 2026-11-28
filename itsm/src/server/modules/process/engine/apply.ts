@@ -20,6 +20,9 @@
 //     the round-1 start task recorded as done, and the run started (trigger kind `process`, the case as its record).
 //   · cancel: the requester, while no step after the start has been done; the open tasks close as «لغو» and the run
 //     is canceled after the commit.
+// One of the demo pack's people decides no step of a case of the organisation's own — not one they still hold, nor
+// one they stand in for by a delegation (FINAL-1: the pack takes none of its work; the purge ends their task and looks
+// for people again).
 // Refusals carry Persian messages (field messages under `problems`); the online services (./service.ts) turn them
 // into a 400 that rolls the submission back, a pushed one keeps them in `result_note`.
 import type { FieldDef, FieldGroup } from "@shared/model/types";
@@ -27,8 +30,6 @@ import { FIELD_GROUPS } from "@shared/model/types";
 import { effectiveRights, type Right } from "@shared/forms/layout";
 import { snapshotFields } from "@shared/forms/snapshot";
 import { attachmentIds } from "@shared/forms/validators";
-import { formatFieldMoney } from "@shared/forms/fieldtypes";
-import { formatJalali } from "@shared/jalali";
 import { levelOutcome } from "@shared/sla/approvals";
 import { localDate } from "@shared/model/jalali-buckets";
 import { uuidv7 } from "@shared/id";
@@ -37,9 +38,9 @@ import { delegationScope, type AssigneeRule } from "@shared/process/assignees";
 import {
   formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, quorumOf, startOf, stepOutcomes, type FormStep, type StepOutcome,
 } from "@shared/process/graph";
-import { renderTitle } from "@shared/process/title";
+import { renderTitle, titlePills } from "@shared/process/title";
 import type { Ctx } from "../../../context";
-import { lockKey, pgArray, type Tx } from "../../../db";
+import { lockKey, pgArray, type Queryable, type Tx } from "../../../db";
 import { demoPeople, isDemoRow } from "../../../db/scope";
 import { notFound } from "../../../http/errors";
 import { memberCtx } from "../../../access";
@@ -49,7 +50,8 @@ import { enqueue } from "../../../jobs";
 import { resumeFlowWait, startRun } from "../../flows";
 import { activeDelegations, delegateOf } from "../../sla/approvals";
 import { checkFormRefs, checkFormValues } from "../../forms";
-import { Resolution } from "../../positions";
+import { DEMO_PEOPLE_REAL_WORK, Resolution } from "../../positions";
+import { caseDisplay } from "./display";
 import { caseJournal } from "./journal";
 import { OPEN_STATES, refreshCase } from "./progress";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type SubmissionRow, type TaskRow, type VersionInfo } from "./store";
@@ -244,39 +246,42 @@ const droppedNote = (n: number) => (n ? `${faDigits(n)} مقدار که در ا�
 
 // ----- start ------------------------------------------------------------------------------------------------------
 
-/** Does the person match one of the starters' rules (a position they hold, a group, a role, named people…)? */
-async function isStarter(tx: Tx, sys: Ctx, starters: AssigneeRule[], user: string): Promise<boolean> {
-  const run = new Resolution(tx, sys, { step: { assignees: starters }, action: "fill", requestedBy: user });
+/**
+ * Does the person match one of the starters' rules (a position they hold, a group, a role, named people…)? The one
+ * check of who may start: the start's apply and «گردش‌کارهای من»/the diagram's «شروع» alike (../api/inbox.ts).
+ * `run`: a resolution of `user` to reuse across processes (its reads are kept).
+ */
+export async function isStarter(q: Queryable, sys: Ctx, starters: AssigneeRule[], user: string, run = new Resolution(q, sys, { step: { assignees: starters }, action: "fill", requestedBy: user })): Promise<boolean> {
   for (const [i, rule] of starters.entries()) {
     if (rule.kind === "users" ? rule.users.includes(user) : (await run.rule(rule, i, false)).some((f) => f.user === user)) return true;
   }
   return false;
 }
 
-/** The text of a title pill: a start-form field's value as people read it, or a person's name. */
-async function titleText(tx: Tx, orgId: string, defs: Map<string, FieldDef>, values: Record<string, unknown>, people: Record<string, string | null>): Promise<(key: string) => string | null> {
-  const names = await peopleNames(tx, [...Object.values(people), ...[...defs].filter(([k, f]) => f.type === "user" && isId(values[k])).map(([k]) => String(values[k]))]);
-  const unitIds = [...defs].filter(([k, f]) => f.type === "ref" && f.ref === "org_unit" && isId(values[k])).map(([k]) => String(values[k]));
-  const units = unitIds.length
-    ? new Map((await tx.query<{ id: string; name: string }>(`select id, name from sm_org_units where org_id = $1 and id = any($2::uuid[])`, [orgId, pgArray(unitIds)])).map((u) => [String(u.id), String(u.name)]))
-    : new Map<string, string>();
-  return (key) => {
-    if (key in people) return people[key] ? names.get(people[key]!) ?? null : null;
-    const f = defs.get(key);
-    const v = values[key];
-    if (v === null || v === undefined || v === "") return null;
-    if (!f) return typeof v === "object" ? null : String(v);
-    if (f.type === "money") return formatFieldMoney(f, v);
-    const options = Array.isArray(f.choices) ? f.choices : [];
-    if (f.type === "choice") return options.find((o) => o.value === v)?.label ?? String(v);
-    if (f.type === "multichoice" && Array.isArray(v)) return v.map((x) => options.find((o) => o.value === x)?.label ?? String(x)).join("، ");
-    if (f.type === "date" || f.type === "datetime") return formatJalali(String(v));
-    if (f.type === "bool") return v === true ? "بله" : "خیر";
-    if (f.type === "user") return names.get(String(v)) ?? null;
-    if (f.type === "ref") return units.get(String(v)) ?? null;
-    if (Array.isArray(v) || typeof v === "object") return null;
-    return typeof v === "number" ? faDigits(v) : String(v);
-  };
+/**
+ * The text of a title pill: a start-form field's value or a person (the requester, «برای چه کسی») as people read
+ * them — the one display rule of a workflow's texts (./display.ts), so the title and a later «تعیین مقدار» or «اعلان»
+ * name the same unit the same way.
+ */
+async function titleText(tx: Tx, sys: Ctx, version: VersionInfo, defs: Map<string, FieldDef>, values: Record<string, unknown>, people: Record<string, string | null>): Promise<(key: string) => string | null> {
+  const shown = await caseDisplay(tx, sys.org.id, { fields: defs, values: { ...values, ...people }, tz: orgTz(sys), keys: titlePills(version.title_template).keys });
+  return (key) => shown.text(key) || null;
+}
+
+/**
+ * The managers a new case takes from the current version: those still here — a member, a group that exists (what the
+ * case's own reference check asks). A published version is never rewritten, so it may name someone removed since (one of
+ * the demo pack's people after its purge, a member who left): the case leaves them out instead of refusing the start
+ * («مسئولان» پیدا نشد). None left means what a version naming none means (the administrators manage the case).
+ */
+async function liveManagers(tx: Tx, orgId: string, version: Pick<VersionInfo, "managers" | "manager_groups">): Promise<{ managers: string[]; groups: string[] }> {
+  const people = version.managers.length
+    ? new Set((await tx.query<{ id: string }>(`select user_id::text as id from sm_org_members where org_id = $1 and user_id = any($2::uuid[]) and deleted_at is null`, [orgId, pgArray(version.managers)])).map((r) => r.id.toLowerCase()))
+    : new Set<string>();
+  const groups = version.manager_groups.length
+    ? new Set((await tx.query<{ id: string }>(`select id::text as id from sm_groups where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [orgId, pgArray(version.manager_groups)])).map((r) => r.id.toLowerCase()))
+    : new Set<string>();
+  return { managers: version.managers.filter((id) => people.has(id.toLowerCase())), groups: version.manager_groups.filter((id) => groups.has(id.toLowerCase())) };
 }
 
 async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter): Promise<ApplyResult> {
@@ -315,7 +320,7 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
   if (Object.keys(taken.problems).length) return refused(null, taken.problems);
   const now = Date.now();
   const label = processNodeLabel(start);
-  const text = await titleText(tx, orgId, taken.defs, taken.values, { requested_by: who.user, requested_for: requestedFor });
+  const text = await titleText(tx, sys, version, taken.defs, taken.values, { requested_by: who.user, requested_for: requestedFor });
   const title = renderTitle(version.title_template, text, version.name || String(proc.name));
   // the run first (its id is the case's run), then the case with the submission's id, its files and the start task
   const runId = await startRun(tx, {
@@ -328,13 +333,14 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
     depth: 0,
   });
   const names = await peopleNames(tx, [who.user]);
+  const { managers, groups } = await liveManagers(tx, orgId, current);
   const kase = (await createIn(
     tx,
     sys,
     "process_case",
     {
       title, process_id: proc.id, process_name: version.name || proc.name, version_id: version.id, version_no: version.version_no, state: "active",
-      requested_by: who.user, requested_for: requestedFor, managers: current.managers, manager_groups: current.manager_groups,
+      requested_by: who.user, requested_for: requestedFor, managers, manager_groups: groups,
       confidential: current.confidential, started_at: iso(now), run_ref: runId, data: taken.values, participants: [who.user],
       progress: {
         [trigger.id]: { status: "done", port: "out", round: 1, at: iso(now) },
@@ -411,6 +417,7 @@ async function applyStep(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter): 
     else if (task.delegated_from && delegateOf(list, task.delegated_from) === me) actedFor = task.delegated_from;
     else return { ...refused("این مرحله به شما سپرده نشده است", {}, kase.id), patch };
   }
+  if ((await demoPeople(tx, orgId, [me])).size && !(await isDemoRow(tx, orgId, kase.id))) return { ...refused(DEMO_PEOPLE_REAL_WORK, {}, kase.id), patch };
 
   // the decision
   const decision = String(sub.outcome ?? (step.action === "approve" ? "" : "submitted")) as StepOutcome;

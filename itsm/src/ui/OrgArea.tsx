@@ -9,8 +9,36 @@ import { OrgProvider, useOrgQuery } from "./lib/org";
 import { AppShell } from "./components/layout";
 import { PageBoundary } from "./components/crash";
 import { ROUTES } from "./modules/registry";
-import { errorText } from "./lib/api";
+import { ApiError, errorText } from "./lib/api";
+import { SERVER_STATES } from "./lib/session";
 import { Loading } from "./App";
+
+/**
+ * Answers that mean the server could not answer now: every one the session takes for «the server is not ready» (its
+ * database being prepared, missing, unreachable, busy or slow, a deadline, a gateway's own error — ./lib/session.tsx),
+ * a lock held elsewhere, a deadlock retried, and no network.
+ */
+const SERVER_DOWN = new Set([...SERVER_STATES, "db_locked", "retry", "network"]);
+
+/**
+ * What the organisation page says when the organisation did not load: a server that cannot answer now is not «no
+ * access» — it offers to try again; a read-only database says so; anything else (not a member, not found) as before.
+ */
+/**
+ * Does the organisation page give way to its error view? Always before the organisation has loaded; afterwards only for
+ * a refusal (not a member any more, gone): a refetch that could not reach the server keeps the shell, the page and its
+ * unsaved input, and the next refetch or the page's own requests try again.
+ */
+export function orgBlocked(q: { data: unknown; error: unknown }): boolean {
+  if (q.data === undefined || q.data === null) return true;
+  return !!q.error && !(q.error instanceof ApiError && SERVER_DOWN.has(q.error.code));
+}
+
+export function orgErrorView(code: string | null | undefined): { title: string; retry: boolean } {
+  if (code && SERVER_DOWN.has(code)) return { title: "سرور اکنون پاسخ نمی‌دهد", retry: true };
+  if (code === "db_read_only") return { title: "پایگاه داده فقط‌خواندنی است", retry: false };
+  return { title: "دسترسی به این سازمان ممکن نیست", retry: false };
+}
 
 /**
  * A page of the signed-in app, mounted afresh for every path. Routes such as <module>/<records>/:id
@@ -52,15 +80,26 @@ export default function OrgArea() {
   const { org } = useParams();
   const q = useOrgQuery(org ?? "");
   if (q.isLoading) return <Loading full />;
-  if (q.error || !q.data)
+  if (orgBlocked(q) || !q.data) {
+    const view = orgErrorView(q.error instanceof ApiError ? q.error.code : null);
     return (
       <Result
         status="warning"
-        title="دسترسی به این سازمان ممکن نیست"
+        title={view.title}
         subTitle={q.error ? errorText(q.error) : undefined}
-        extra={<Button href="/orgs">فهرست سازمان‌ها</Button>}
+        extra={
+          <>
+            {view.retry ? (
+              <Button type="primary" loading={q.isFetching} onClick={() => void q.refetch()}>
+                دوباره امتحان کنید
+              </Button>
+            ) : null}
+            <Button href="/orgs">فهرست سازمان‌ها</Button>
+          </>
+        }
       />
     );
+  }
   return (
     <OrgProvider orgId={org!} info={q.data}>
       <AppShell>

@@ -260,3 +260,30 @@ export function registerRecordMeta(table: string, fn: MetaProvider): () => void 
 export function metaProvidersFor(table: string): MetaProvider[] {
   return [...(metaProviders.get(table) ?? []), ...(metaProviders.get("*") ?? [])];
 }
+
+export interface RowMarkArgs {
+  q: Queryable;
+  ctx: Ctx;
+  def: TableDef;
+  /** the rows of the page, as the list returns them (a marker adds keys, never changes a field) */
+  rows: Row[];
+}
+export type RowMarker = (m: RowMarkArgs) => Promise<void> | void;
+
+const rowMarkers = new Map<string, RowMarker[]>();
+
+/**
+ * Flags a module puts on the rows a person lists of `table` (POST /r/:table/query, the pickers' /r/user): never a
+ * field's value, never for the system, never in a Windows app's replica (a pull reads its rows itself). The positions
+ * module marks the demo pack's positions and, for those who may know, its people (`demo: true`; modules/positions/demo.ts).
+ */
+export function registerRowMarks(table: string, fn: RowMarker): () => void {
+  rowMarkers.set(table, [...(rowMarkers.get(table) ?? []), fn]);
+  return () => rowMarkers.set(table, (rowMarkers.get(table) ?? []).filter((x) => x !== fn));
+}
+
+/** Apply the table's row marks to a page a person lists (`list`, the virtual user table's list). */
+export async function markRows(q: Queryable, ctx: Ctx, def: TableDef, rows: Row[]): Promise<void> {
+  if (!rows.length || ctx.actor === "system") return;
+  for (const fn of rowMarkers.get(def.key) ?? []) await fn({ q, ctx, def, rows });
+}

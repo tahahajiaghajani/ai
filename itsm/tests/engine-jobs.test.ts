@@ -267,18 +267,23 @@ describe("job ticks on both runtimes", () => {
 
   it("the web version runs queued jobs after a write request (waitUntil)", async () => {
     const pending: Promise<unknown>[] = [];
-    const { app } = await makeServer({ config: { waitUntil: (work) => void pending.push(work()) } });
+    const { app, db } = await makeServer({ config: { waitUntil: (work) => void pending.push(work()) } });
     const c = new Client(app);
     const org = await signupWithOrg(c);
+    // sign-up, the first request, passed the minute's traffic gate, and POST /api/orgs queued the new organisation's seeds
+    // (due in 10 minutes): the work each one handed to waitUntil probes after the answer, finds nothing due, claims no job
+    await Promise.all(pending);
+    const handed = pending.length;
+    expect(await db.one(`select count(*)::int as n from sm_jobs where attempts > 0`)).toEqual({ n: 0 });
     const seen: string[] = [];
     const off = onRecordEvent("t-after", (ev) => void seen.push(ev.kind), { tables: ["todo"] });
     try {
       await c.post(`/o/${org}/r/todo`, { short_description: "پس از پاسخ" });
-      expect(pending.length).toBe(1);
+      expect(pending.length).toBe(handed + 1);
       await Promise.all(pending);
       expect(seen).toEqual(["record.created"]);
       await c.get(`/o/${org}/r/todo`);
-      expect(pending.length).toBe(1); // reads do not tick
+      expect(pending.length).toBe(handed + 1); // reads do not tick
     } finally {
       off();
     }

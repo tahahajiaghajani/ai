@@ -7,31 +7,34 @@
 //     positions and a dry run of the resolver for steps that depend on the case), the values I may read (F4b's
 //     `caseViews`, the same function the record API's redaction uses), my open steps with their forms, rights,
 //     decisions, return targets, next step, drafts and my last refused submission (its message and the values I
-//     entered), what I may do (cancel as the requester; pause, resume, reassign, cancel, «ادامه از مرحلهٔ …» as a
-//     manager), and the history: tasks, submissions (their values cut to what I may read; my own refused ones too, and
-//     the message of mine) and the journal;
+//     entered), what I may do (cancel as the requester; pause, resume, reassign, cancel, «ادامه از مرحلهٔ …» and — on a
+//     step that waits for people — «دوباره پیدا کردن انجام‌دهنده» as a manager), the steps that wait with nobody to act
+//     (`waiting`: why — the resolver's reasons and, past a step's limit, the candidates for its managers only), whether
+//     the case is a row of the demo pack, and the history: tasks, submissions (their values cut to what I may read; my
+//     own refused ones too, and the message of mine) and the journal;
 //   · `casePrint`: what F7's printable view of a case needs — decisions, names and dates, and the readable values as
-//     people read them.
+//     people read them (the one display rule of a workflow's texts, ../engine/display.ts).
 import type { Cond } from "@shared/model/conditions";
 import type { FieldDef } from "@shared/model/types";
 import { effectiveRights, layoutFields, type Right } from "@shared/forms/layout";
-import { formatFieldMoney } from "@shared/forms/fieldtypes";
-import { attachmentIds } from "@shared/forms/validators";
 import { formatJalali } from "@shared/jalali";
-import { faDigits } from "@shared/format";
 import { CASE_OUTCOMES, CASE_STATES, TASK_ACTIONS, TASK_OUTCOMES } from "@shared/tables/process";
 import {
   formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, restartTargets, stepOutcomes, type ProcessGraph, type StepOutcome,
 } from "@shared/process/graph";
-import { stepStatuses, type NodeStatusView } from "@shared/process/status";
+import { stepStatuses, withUnstaffed, type NodeStatusView } from "@shared/process/status";
 import type { Ctx } from "../../../context";
 import { pgArray } from "../../../db";
 import { bad, notFound } from "../../../http/errors";
-import { canOpenRecords, defFor, get, list, listJournal, systemCtx } from "../../../engine";
+import { canOpenRecords, defFor, get, list, listJournal, orgTz, systemCtx } from "../../../engine";
 import { resolveAssignees } from "../../positions";
 import { caseViews, visibleData } from "../access";
 import { OPEN_STATES, resolveInput } from "../engine";
 import { caseTasks, isId, loadVersionInfo, type CaseRow, type TaskRow, type VersionInfo } from "../engine/store";
+import { caseDisplay } from "../engine/display";
+import { waitingSteps } from "../engine/waiting";
+import type { StepWaiting } from "@shared/process/waiting";
+import { isDemoRow } from "../../../db/scope";
 import { CLOSED_CASE, managesCase, nameMap, nextStepLabel, OPEN_CASE, personFacts } from "./common";
 import { myGroups } from "./inbox";
 
@@ -167,7 +170,11 @@ export interface CaseDetail {
   forms: VersionInfo["forms"];
   data: Record<string, unknown>;
   my_steps: MyStep[];
-  can: { cancel: boolean; manage: boolean; pause: boolean; resume: boolean; reassign: boolean; resume_from: boolean };
+  can: { cancel: boolean; manage: boolean; pause: boolean; resume: boolean; reassign: boolean; resume_from: boolean; reresolve: boolean };
+  /** the steps whose open round has no open task (nobody found, or more than the step takes), by node id */
+  waiting: Record<string, StepWaiting>;
+  /** the case is a row of the organisation's demo pack */
+  demo: boolean;
   restart_targets: { key: string; label: string }[];
   /** the earliest due time of the open steps */
   due_at: string | null;
@@ -289,6 +296,8 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
   const startKey = graph.nodes.find((n) => n.type === "form_step" && formStepOf(n.config).start)?.id;
   const requester = kase.requested_by === me || kase.requested_for === me;
   const open_ = OPEN_STATES.has(kase.state);
+  // the steps that wait for people: why (the reasons and the candidates only for the managers)
+  const waiting = await waitingSteps(ctx.db, kase, graph, tasks, manage);
   const can = {
     cancel: open_ && ((requester && !tasks.some((t) => t.status === "done" && t.step_key !== startKey)) || manage),
     manage,
@@ -296,6 +305,7 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
     resume: manage && !!kase.paused_at && open_,
     reassign: manage && open_ && kase.state !== "attention",
     resume_from: manage && kase.state === "attention",
+    reresolve: manage && open_ && kase.state !== "attention" && Object.keys(waiting).length > 0,
   };
   const restart = can.resume_from ? restartTargets(graph).map((key) => ({ key, label: processNodeLabel(graph.nodes.find((n) => n.id === key)!) })) : [];
 
@@ -320,11 +330,14 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
       paused_at: iso(kase.paused_at), current_steps: kase.current_steps ?? [], confidential: kase.confidential === true, version: row.version,
     },
     graph,
-    statuses,
+    // a step that waits for people says so on the diagram, not «در جریان» (1.1.5)
+    statuses: withUnstaffed(statuses, Object.keys(waiting)),
     forms: version.forms,
     data,
     my_steps,
     can,
+    waiting,
+    demo: await isDemoRow(ctx.db, ctx.org.id, kase.id),
     restart_targets: restart,
     due_at: openDue.length ? new Date(Math.min(...openDue)).toISOString() : null,
     history: {
@@ -354,22 +367,6 @@ export interface CasePrint {
   printed_at: string;
 }
 
-/** A value as people read it (money in the organisation's unit, Jalali dates, labels of options, names). */
-function valueText(f: FieldDef, v: unknown, names: Map<string, string>, files: Map<string, string>): string {
-  if (v === null || v === undefined || v === "") return "";
-  const opts = Array.isArray(f.choices) ? f.choices : [];
-  if (f.check === "attachments") return (attachmentIds(f, v).ids ?? []).map((id) => files.get(id) ?? "پیوست").join("، ");
-  if (f.type === "money") return formatFieldMoney(f, v);
-  if (f.type === "date" || f.type === "datetime") return formatJalali(String(v));
-  if (f.type === "bool") return v === true ? "بله" : "خیر";
-  if (f.type === "choice") return opts.find((o) => o.value === v)?.label ?? String(v);
-  if (f.type === "multichoice" && Array.isArray(v)) return v.map((x) => opts.find((o) => o.value === x)?.label ?? String(x)).join("، ");
-  if (f.type === "user" || f.type === "ref" || f.type === "group") return names.get(String(v)) ?? "—";
-  if (Array.isArray(v)) return v.map((x) => names.get(String(x)) ?? String(x)).join("، ");
-  if (typeof v === "object") return "";
-  return typeof v === "number" ? faDigits(v) : String(v);
-}
-
 /** What the printable view of a case shows (see the header). */
 export async function casePrint(ctx: Ctx, id: string): Promise<CasePrint> {
   const { kase, version } = await readCase(ctx, id);
@@ -377,14 +374,10 @@ export async function casePrint(ctx: Ctx, id: string): Promise<CasePrint> {
   const view = (await caseViews(ctx.db, ctx, [kase.id])).get(kase.id);
   const data = visibleData(view, kase.data) ?? {};
   const defs = version.forms ? version.forms.fields : {};
-  const refs = Object.entries(data).flatMap(([k, v]) => (defs[k] && ["user", "ref", "group", "users"].includes(defs[k].type) ? (Array.isArray(v) ? v : [v]) : [])).filter(isId).map(String);
-  const units = refs.length ? await ctx.db.query<{ id: string; name: string }>(`select id, name from sm_org_units where org_id = $1 and id = any($2::uuid[]) union all select id, name from sm_groups where org_id = $1 and id = any($2::uuid[])`, [ctx.org.id, pgArray(refs)]) : [];
-  const fileIds = Object.entries(data).flatMap(([k, v]) => (defs[k]?.check === "attachments" ? attachmentIds(defs[k], v).ids ?? [] : []));
-  const files = new Map(
-    fileIds.length ? (await ctx.db.query<{ id: string; name: string }>(`select id, name from sm_attachments where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [ctx.org.id, pgArray(fileIds)])).map((f) => [String(f.id), String(f.name)]) : [],
-  );
-  const people = await nameMap(ctx.db, [kase.requested_by, kase.requested_for, ...tasks.flatMap((t) => [t.acted_by, t.acted_for]), ...refs]);
-  const names = new Map<string, string>([...Object.entries(people), ...units.map((u) => [String(u.id), String(u.name)] as [string, string])]);
+  // the values I read as people read them: the one display rule of a workflow's texts (../engine/display.ts)
+  const shown = await caseDisplay(ctx.db, ctx.org.id, { fields: new Map(Object.entries(defs)), values: data, tz: orgTz(ctx) });
+  const people = await nameMap(ctx.db, [kase.requested_by, kase.requested_for, ...tasks.flatMap((t) => [t.acted_by, t.acted_for])]);
+  const names = new Map<string, string>(Object.entries(people));
   const done = tasks.filter((t) => t.status === "done").sort((a, b) => String(a.closed_at ?? "").localeCompare(String(b.closed_at ?? "")));
   const order = version.forms ? Object.values(version.forms.forms).flatMap((f) => layoutFields(f.layout)) : [];
   const keys = [...new Set([...order, ...Object.keys(data)])].filter((k) => k in data && defs[k]);
@@ -399,7 +392,7 @@ export async function casePrint(ctx: Ctx, id: string): Promise<CasePrint> {
       step: t.step_label, action: label(TASK_ACTIONS, t.action), outcome: label(TASK_OUTCOMES, t.outcome), by: names.get(String(t.acted_by)) ?? null,
       for: t.acted_for ? names.get(String(t.acted_for)) ?? null : null, at: iso(t.closed_at), at_text: t.closed_at ? formatJalali(String(iso(t.closed_at))) : null, comment: t.comment, round: Number(t.round),
     })),
-    values: keys.map((k) => ({ field: k, label: defs[k].label, text: valueText(defs[k], data[k], names, files) })),
+    values: keys.map((k) => ({ field: k, label: defs[k].label, text: shown.text(k) })),
     printed_at: new Date().toISOString(),
   };
 }

@@ -510,6 +510,16 @@ export function escapeMarkdown(s: string): string {
     .replace(/^(\s*)(\d+)([.)])/gm, "$1$2\\$3");
 }
 
+/**
+ * A value written into the text of an inline template before it is sent (a flow's or a workflow's «اعلان», whose
+ * pills are filled first): shown as it is — never read as one of the template's own placeholders, and in a Markdown
+ * body escaped as the service escapes a placeholder's value, so what a person typed adds no link or formatting to a
+ * message sent in the organisation's name.
+ */
+export function inlineValue(s: string, mode: "markdown" | "plain"): string {
+  return mode === "markdown" ? escapeMarkdown(s) : s.replace(/\{(?=\{)|\}(?=\})/g, "$&‌");
+}
+
 /** One line of plain text (titles, SMS): whitespace collapsed, Markdown marks of mentions kept readable. */
 export function plainLine(s: string, max = 300): string {
   const t = s

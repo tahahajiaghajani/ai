@@ -59,6 +59,18 @@ localRoutes.post("/backups/restore", async (c) => {
   return c.json({ ok: true, restart: true });
 });
 
+/**
+ * «فشرده‌سازی پایگاه داده» (Settings, the Windows app): the local database is compacted at the next start, with lower
+ * thresholds than a start's own look (src/desktop/maintenance.ts); the page then runs the app again.
+ */
+localRoutes.post("/maintenance/compact", async (c) => {
+  await needAdmin(c);
+  const b = bridge(c);
+  if (!b.scheduleCompaction) throw forbidden("این بخش فقط در نسخه‌ی ویندوزی است");
+  await b.scheduleCompaction();
+  return c.json({ ok: true, restart: true });
+});
+
 /** Settings of the installation; a wrong value here (a port «abc», «keep: x») breaks the next start or deletes backups. */
 const settingsSchema = z.object({
   lan: z.object({

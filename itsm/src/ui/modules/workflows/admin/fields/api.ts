@@ -35,6 +35,11 @@ export interface LibraryEntry {
   help: string | null;
   placeholder: string | null;
   usage: FieldUsage;
+  /**
+   * one of the demo pack's fields (release 1.1.5): «حذف داده‌های نمایشی» removes it — from the organisation's forms that
+   * use it, and from a table it was added to with the values stored under it
+   */
+  demo?: boolean;
 }
 
 /** A built-in type of GET /fields/types. */

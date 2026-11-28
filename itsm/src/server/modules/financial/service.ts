@@ -24,11 +24,30 @@ import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { aggregate, createIn, defFor, emitEvent, get, list, removeIn, transitionIn, updateIn } from "../../engine";
 import { lockKey, pgArray } from "../../db";
+import { demoScopeOrg } from "../../db/scope";
 import { tableDef } from "@shared/tables";
 import { configRow, hasGroup, isUuid, liveRow, liveRows, localDate, lockedRow, orgToday, sysOf, type Row } from "../itam/common";
 import { bookValueOf } from "../itam/hooks";
 
 export const financialConfig = (q: Ctx["db"], ctx: Ctx) => configRow(q, ctx, "financial_config", FINANCIAL_CONFIG_DEFAULTS);
+
+/**
+ * The side of the demo boundary (docs/DEMO_FA.md) the ledger's work is on: inside the organisation's demo scope (the
+ * pack's ledger and allocation runs, a request of the pack's people) the demo pack's, outside it the organisation's
+ * own. `pack(id)`: is the row one of the pack's (sm_demo_rows: the rows of `tables`)? `ours(id)`: is it on this side?
+ * Each side posts and counts its own items only. The organisation's capture never posts an item of the pack: its entry
+ * would be real work the purge keeps (an entry is attributed to the pack only through its references). The pack's
+ * never posts one of the organisation's: its entry goes with the pack, and the organisation's sweep, which found that
+ * month taken, posts it again only while the month is still one it covers — the item loses the month.
+ */
+export async function ledgerSide(sys: Ctx, tables: string[]): Promise<{ inPack: boolean; pack(id: unknown): boolean; ours(id: unknown): boolean }> {
+  const inPack = demoScopeOrg() === sys.org.id;
+  const names = tables.map((t) => tableDef(t)?.table).filter((t): t is string => !!t);
+  const rows = names.length ? await sys.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1 and tbl = any($2::text[])`, [sys.org.id, pgArray(names)]) : [];
+  const ids = new Set(rows.map((r) => r.id));
+  const pack = (id: unknown) => typeof id === "string" && ids.has(id.toLowerCase());
+  return { inPack, pack, ours: (id) => pack(id) === inPack };
+}
 
 const periodLabel = (key: string) => {
   const [y, m] = key.split("-").map(Number);
@@ -80,12 +99,16 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
     const day = dayOf(d);
     return !!day && day >= String(p.start_date) && day <= String(p.end_date);
   };
+  // the costs of this side of the demo boundary only (ledgerSide): the organisation's own items outside the demo scope,
+  // the pack's inside it — by the record that carries the cost (the asset, contract, subscription, licence, repair)
+  const side = await ledgerSide(sys, ["asset", "contract", "saas_subscription", "license_entitlement", "repair_order"]);
 
   // asset purchases (CapEx) and depreciation
   const assets = await liveRows(sys.db, sys, "asset", { f: "purchase_cost", op: "nempty" } as Cond, { limit: 100000 });
   const purchased = await allKeys("asset_purchase:");
   const rules = new Map((await liveRows(sys.db, sys, "depreciation_rule", null, { limit: 500 })).map((r) => [String(r.id), r]));
   for (const a of assets) {
+    if (!side.ours(a.id)) continue;
     const base = { asset_id: a.id, ci_id: a.ci_id ?? null, supplier_id: a.vendor_id ?? null, cost_center_id: a.cost_center_id ?? null };
     if (inPeriod(a.purchase_date) && !purchased.has(`asset_purchase:${a.id}`)) add(`asset_purchase:${a.id}`, "asset_purchase", CODES.hardware, String(a.purchase_cost), { ...base, entry_date: a.purchase_date, capex_opex: "capex", description: `خرید ${a.number ?? ""} — ${a.name ?? ""}`.slice(0, 300) });
     const rule = rules.get(String(a.depreciation_rule_id ?? ""));
@@ -103,6 +126,7 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
   // contracts with an annual value (monthly accrual over their term)
   const contracts = await liveRows(sys.db, sys, "contract", { and: [{ f: "state", op: "in", v: ["active", "expired", "renewed", "terminated"] }, { f: "annual_value", op: "nempty" }] } as Cond, { limit: 20000 });
   for (const c of contracts) {
+    if (!side.ours(c.id)) continue;
     if (c.start_date && String(c.start_date) > String(p.end_date)) continue;
     if (c.end_date && String(c.end_date) < String(p.start_date)) continue;
     const type = isUuid(c.cost_type_id) ? [...types.values()].find((t) => t.id === c.cost_type_id) : null;
@@ -111,11 +135,12 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
   }
   // SaaS subscriptions
   const subs = await liveRows(sys.db, sys, "saas_subscription", { and: [{ f: "state", op: "in", v: ["active", "cancel_pending"] }, { f: "annual_cost", op: "nempty" }] } as Cond, { limit: 5000 });
-  for (const s of subs) add(`saas:${s.id}:${period}`, "saas", CODES.cloud, monthlyShare(String(s.annual_cost), m), { supplier_id: s.supplier_id ?? null, contract_id: s.contract_id ?? null, cost_center_id: s.cost_center_id ?? null, description: `${s.name ?? ""} — ${periodLabel(period)}`.slice(0, 300) });
+  for (const s of subs) if (side.ours(s.id)) add(`saas:${s.id}:${period}`, "saas", CODES.cloud, monthlyShare(String(s.annual_cost), m), { supplier_id: s.supplier_id ?? null, contract_id: s.contract_id ?? null, cost_center_id: s.cost_center_id ?? null, description: `${s.name ?? ""} — ${periodLabel(period)}`.slice(0, 300) });
   // licences: annual costs accrued, one-off purchases on their date
   const ents = await liveRows(sys.db, sys, "license_entitlement", { f: "state", op: "in", v: ["active", "expired"] } as Cond, { limit: 20000 });
   const licenses = await allKeys("license:");
   for (const e of ents) {
+    if (!side.ours(e.id)) continue;
     const base = { supplier_id: e.supplier_id ?? null, contract_id: e.contract_id ?? null, cost_center_id: e.cost_center_id ?? null };
     if (e.annual_cost && (!e.end_date || String(e.end_date) >= String(p.start_date)) && (!e.start_date || String(e.start_date) <= String(p.end_date))) {
       add(`license:${e.id}:${period}`, "license", CODES.software, monthlyShare(String(e.annual_cost), m), { ...base, description: `${e.name ?? ""} — ${periodLabel(period)}`.slice(0, 300) });
@@ -127,7 +152,7 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
   const repairs = await liveRows(sys.db, sys, "repair_order", { and: [{ f: "state", op: "in", v: ["repaired", "beyond_repair", "closed"] }, { f: "cost", op: "nempty" }] } as Cond, { limit: 20000 });
   const repaired = await allKeys("repair:");
   for (const r of repairs) {
-    if (!inPeriod(r.returned_at ?? r.updated_at) || repaired.has(`repair:${r.id}`)) continue;
+    if (!side.ours(r.id) || !inPeriod(r.returned_at ?? r.updated_at) || repaired.has(`repair:${r.id}`)) continue;
     const a = await liveRow(sys.db, sys, "asset", r.asset_id);
     add(`repair:${r.id}`, "repair", CODES.repair, String(r.cost), { asset_id: r.asset_id, ci_id: a?.ci_id ?? null, supplier_id: r.vendor_id ?? null, cost_center_id: a?.cost_center_id ?? null, entry_date: dayOf(r.returned_at ?? r.updated_at), description: `تعمیر ${r.number ?? ""} — ${r.title ?? ""}`.slice(0, 300) });
   }
@@ -136,7 +161,7 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
   const disposed = await liveRows(sys.db, sys, "asset", { and: [{ f: "state", op: "eq", v: "disposed" }, { f: "book_value", op: "gt", v: "0" }] } as Cond, { limit: 20000 });
   const written = await allKeys("disposal:");
   for (const a of disposed) {
-    if (!inPeriod(a.disposed_at) || written.has(`disposal:${a.id}`)) continue;
+    if (!side.ours(a.id) || !inPeriod(a.disposed_at) || written.has(`disposal:${a.id}`)) continue;
     const day = dayOf(a.disposed_at)!;
     const book = bookValueOf(rules.get(String(a.depreciation_rule_id ?? "")), a, day)?.book_value ?? String(a.book_value);
     add(`disposal:${a.id}`, "disposal", CODES.disposal, book, { asset_id: a.id, cost_center_id: a.cost_center_id ?? null, entry_date: day, description: `زیان اسقاط ${a.number ?? ""} (ارزش دفتری)`.slice(0, 300) });
@@ -271,11 +296,14 @@ export async function budgetAlerts(sys: Ctx): Promise<number> {
   const [year] = await liveRows(sys.db, sys, "fiscal_year", { f: "year", op: "eq", v: jy } as Cond, { limit: 1 });
   if (!year) return 0;
   const budgets = await liveRows(sys.db, sys, "budget", { and: [{ f: "fiscal_year_id", op: "eq", v: year.id }, { f: "state", op: "in", v: ["approved", "locked"] }] } as Cond, { limit: 2000 });
+  // a budget is measured by the costs of its own side of the demo boundary: the pack's costs on a centre of the
+  // organisation's (an item of the pack without a cost centre posts to the default one) never alert a real budget
+  const side = await ledgerSide(sys, ["budget", "cost_entry"]);
   let n = 0;
   for (const b of budgets) {
     if (!D(b.total ?? 0).gt(0)) continue;
     const entries = await liveRows(sys.db, sys, "cost_entry", { and: [{ f: "cost_center_id", op: "eq", v: b.cost_center_id }, { f: "entry_date", op: "between", v: [year.start_date, year.end_date] }] } as Cond, { limit: 200000 });
-    const actual = entries.reduce<ReturnType<typeof D>>((a, e) => a.plus(D(e.amount ?? 0)), D(0));
+    const actual = entries.filter((e) => side.pack(e.id) === side.pack(b.id)).reduce<ReturnType<typeof D>>((a, e) => a.plus(D(e.amount ?? 0)), D(0));
     const pct = Number(actual.div(D(b.total)).mul(100).toDecimalPlaces(0));
     const thresholds = [Number(b.alert_percent ?? 90), 100].filter((t, i, xs) => xs.indexOf(t) === i).sort((a, c) => a - c);
     const reached = thresholds.filter((t) => pct >= t && t > Number(b.alerted_percent ?? 0));
@@ -327,7 +355,11 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
   if (!["draft", "calculated"].includes(String(run.state))) throw conflict("اجرای تأییدشده یا ثبت‌شده دوباره محاسبه نمی‌شود");
   const sys = sysOf(ctx, ctx.user.id);
   const { from, to } = await runPeriods(ctx, run);
-  const rules = await liveRows(ctx.db, sys, "allocation_rule", { f: "active", op: "eq", v: true } as Cond, { order: "t.sort_order nulls last, t.name", limit: 500 });
+  // the costs of the run's side of the demo boundary (ledgerSide): a run of the organisation applies its own rules to its
+  // own costs, never the pack's (its results, posted, would be real entries made of demo costs); one of the pack's shares
+  // the pack's costs only (it is made only while no rule of the organisation's has real costs to share, modules.ts)
+  const side = await ledgerSide(sys, ["allocation_rule", "cost_entry"]);
+  const rules = (await liveRows(ctx.db, sys, "allocation_rule", { f: "active", op: "eq", v: true } as Cond, { order: "t.sort_order nulls last, t.name", limit: 500 })).filter((r) => side.inPack || !side.pack(r.id));
   const results: Row[] = [];
   const drivers: { key: string; driver: number }[] = [];
   let pool = D(0);
@@ -337,7 +369,7 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
     const types = Array.isArray(rule.cost_types) && rule.cost_types.length ? rule.cost_types : null;
     const where: Cond[] = [{ f: "cost_center_id", op: "eq", v: rule.source_cost_center_id }, { f: "entry_date", op: "between", v: [from.start_date, to.end_date] }, { f: "source", op: "ne", v: "allocation" }];
     if (types) where.push({ f: "cost_type_id", op: "in", v: types });
-    const entries = await liveRows(ctx.db, sys, "cost_entry", { and: where } as Cond, { limit: 200000 });
+    const entries = (await liveRows(ctx.db, sys, "cost_entry", { and: where } as Cond, { limit: 200000 })).filter((e) => side.ours(e.id));
     const amount = entries.reduce<ReturnType<typeof D>>((a, e) => a.plus(D(e.amount ?? 0)), D(0));
     pool = pool.plus(amount);
     const targets = await liveRows(ctx.db, sys, "allocation_target", { f: "rule_id", op: "eq", v: rule.id } as Cond, { limit: 500 });

@@ -14,6 +14,7 @@ import { DEFAULT_TIMEZONE } from "@shared/constants";
 import { nextOccurrence, renderTemplate, scheduleKey, scheduleProblem, type ScheduleSpec } from "@shared/flows";
 import { startRun } from "./executor";
 import { activeFlows, resolveRunAs, type PublishedFlow } from "./triggers";
+import { linkedOrgOf } from "../../sync/link-state";
 
 const MINUTE = 60_000;
 
@@ -22,16 +23,29 @@ export async function ensureScheduler(q: Queryable, orgId: string): Promise<void
   await enqueue(q, { kind: "flows.scheduler", orgId, dedupeKey: "flows.scheduler", maxAttempts: 100 });
 }
 
-let linkCache: { at: number; orgId: string | null } | null = null;
+/** A bridge's last answer about its link, per bridge (only for a server without a link reader: see below). */
+const linkCache = new WeakMap<object, { at: number; orgId: string | null }>();
 
-/** Does this runtime fire the organisation's schedules? (A linked Windows app leaves them to the web version.) */
+/**
+ * Does this runtime fire the organisation's schedules? (A linked Windows app leaves them to the web version.) The
+ * Windows app's server registers a reader of its link (src/server/sync/link-state.ts), read in memory on every call:
+ * right after linking or unlinking, starts, submissions and schedules follow the new state at once — never a minute
+ * of the old one (a start applied here while the authority already runs the organisation's cases). A server without a
+ * reader (a test's bridge) is asked through `info()`, at most once a minute per bridge (it reads the database).
+ */
 export async function schedulesRunHere(cfg: ServerConfig, orgId: string): Promise<boolean> {
   if (cfg.mode !== "desktop") return true;
-  if (!linkCache || Date.now() - linkCache.at > MINUTE) {
-    const info = (await cfg.desktop?.info().catch(() => null)) as { cloud?: { linked?: boolean; org_id?: string | null } } | null;
-    linkCache = { at: Date.now(), orgId: info?.cloud?.linked ? info.cloud.org_id ?? null : null };
+  const linked = linkedOrgOf(cfg.db);
+  if (linked !== undefined) return linked !== orgId;
+  const bridge = cfg.desktop;
+  if (!bridge) return true;
+  let known = linkCache.get(bridge);
+  if (!known || Date.now() - known.at > MINUTE) {
+    const info = (await bridge.info?.().catch(() => null)) as { cloud?: { linked?: boolean; org_id?: string | null } } | null;
+    known = { at: Date.now(), orgId: info?.cloud?.linked ? info.cloud.org_id ?? null : null };
+    linkCache.set(bridge, known);
   }
-  return linkCache.orgId !== orgId;
+  return known.orgId !== orgId;
 }
 
 interface ScheduleRow {

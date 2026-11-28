@@ -17,13 +17,17 @@ import { periodKeyOf } from "@shared/financial/logic";
 import { addDays } from "@shared/jalali";
 import { attest, openAttestations, receiveTransfer, resolveAuditItem, setDeviceStatus, type AttestInput } from "../itam/bank";
 import { scan } from "../itam/stock";
+import { orgToday } from "../itam/common";
 import { capture } from "../financial/service";
 import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
 import { secureWorkspace } from "../security/common";
-import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
+import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, demoTag, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
 import { costCentresIn, stepAnalytics, stepContinuityGrc, stepCsm, stepDelivery, stepDocs, stepEsm, stepEvents, stepExperience, stepField, stepFinance, stepPortal, stepWorkforce } from "./modules";
 import { stepWorkflow } from "./workflow";
+import { stepWorkflowCases, stepWorkflowDefs } from "./workflows";
+import type { WfMemo } from "./workflow-samples";
+import { forgetPurged } from "./ledger";
 
 /** What the steps share (saved with the pack between job invocations). */
 export interface LoadMemo {
@@ -56,6 +60,13 @@ export interface LoadMemo {
   refused?: Record<string, string>;
   /** the bank's asset people: per branch unit its officer and manager, per region its asset manager */
   itam?: { officers: Record<string, string>; managers: Record<string, string>; regional: Record<string, string> };
+  /** the bank's own fields, forms, positions, workflows and sample cases (./workflows.ts) */
+  wf?: WfMemo;
+  /**
+   * how long the next invocation waits (ms) when a step stopped for the job queue rather than for its deadline: the
+   * sample cases wait for their runs' jobs (./workflows.ts); unset, it runs again at once
+   */
+  wait?: number;
 }
 
 /**
@@ -270,7 +281,10 @@ export const STEPS: Step[] = [
   { key: "delivery", label: "انتشارها، دواپس و پروژه‌ها", run: stepDelivery },
   { key: "portal", label: "درگاه: پیوندها، موضوع‌ها، نظرسنجی‌ها و پاسخ‌ها", run: stepPortal },
   { key: "workflows", label: "گردش‌کار نمونه: درخواست دسترسی به سامانه", run: stepWorkflow },
+  { key: "workflow_defs", label: "فیلدها، فرم‌ها، نقش‌های سازمانی و گردش‌کارهای نمونه", run: stepWorkflowDefs },
   { key: "analytics", label: "داشبوردها و شاخص‌های بانک", run: stepAnalytics },
+  // last: the sample cases move on through the job queue between the load's invocations
+  { key: "workflow_cases", label: "پرونده‌های نمونهٔ گردش‌کارها", run: stepWorkflowCases },
 ];
 
 async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
@@ -347,12 +361,57 @@ async function stepGroups({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
-/** One account of the pack (recorded for the purge; no password unless it is a persona the presenter signs in as). */
-async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; name: string; title: string; unit?: string; location?: string; manager?: string | null; roles: string[]; hash: string | null; role?: "member" | "viewer" }): Promise<string> {
-  const id = uuidv7();
-  await tx.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, $3, $4, $5::jsonb)`, [id, p.email, p.name, p.hash, JSON.stringify({ demo_org: orgId })]);
+/** Addresses tried for one account of the pack (its own, then «agent.1a2b3c4d.2@…» and on). */
+const ADDRESS_TRIES = 20;
+
+/**
+ * One account of the pack (recorded for the purge; no password unless it is a persona the presenter signs in as). An
+ * account with the persona's address already there — one an earlier purge kept because it belongs to another
+ * organisation too — is marked for the pack again, never inserted twice (the address is unique): it leaves the
+ * purged-id ledger, and its membership here comes back. Never someone else's account: one another organisation's pack
+ * holds (`prefs.demo_org` names it), or one of this organisation's own people (a live member the pack does not hold, a
+ * former persona an administrator added back) — the next free address is taken instead («agent.1a2b3c4d.2@…»; the
+ * console lists the address stored).
+ */
+export async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; name: string; title: string; unit?: string; location?: string; manager?: string | null; roles: string[]; hash: string | null; role?: "member" | "viewer" }): Promise<string> {
+  let email = p.email;
+  let kept: { id: string } | null = null;
+  for (let n = 2; ; n++) {
+    const found = await tx.one<{ id: string; theirs: boolean }>(
+      `select u.id::text as id,
+              case when coalesce(u.prefs ->> 'demo_org', '') = $2 then false
+                   when coalesce(u.prefs ->> 'demo_org', '') <> '' then true
+                   else exists (select 1 from sm_org_members m where m.org_id = $3 and m.user_id = u.id and m.deleted_at is null)
+                        and not exists (select 1 from sm_demo_rows d where d.org_id = $3 and d.row_id = u.id)
+              end as theirs
+         from sm_users u where lower(u.email) = lower($1)`,
+      [email, orgId, orgId],
+    );
+    if (!found?.theirs) {
+      kept = found ? { id: found.id } : null;
+      break;
+    }
+    if (n > ADDRESS_TRIES) throw new Error(`نشانی «${p.email}» و نشانی‌های جایگزین آن همه از آنِ حساب‌های دیگرند؛ حساب نمایشی ساخته نشد`);
+    email = p.email.replace("@", `.${n}@`);
+  }
+  const id = kept?.id ?? uuidv7();
+  if (kept) {
+    await tx.query(
+      `update sm_users set full_name = $2, password_hash = coalesce($3, password_hash), disabled = false,
+              prefs = coalesce(prefs, '{}'::jsonb) - 'demo_purged' || jsonb_build_object('demo_org', $4::text)
+        where id = $1`,
+      [id, p.name, p.hash, orgId],
+    );
+    await forgetPurged(tx, orgId, [id]);
+  } else {
+    await tx.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, $3, $4, $5::jsonb)`, [id, email, p.name, p.hash, JSON.stringify({ demo_org: orgId })]);
+  }
   await tx.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [orgId, id]);
-  await tx.query(`insert into sm_org_members (id, org_id, user_id, role, title, origin) values ($1, $2, $3, $4, $5, $6)`, [uuidv7(), orgId, id, p.role ?? "member", p.title, sys.cfg.origin ?? null]);
+  await tx.query(
+    `insert into sm_org_members (id, org_id, user_id, role, title, origin) values ($1, $2, $3, $4, $5, $6)
+     on conflict (org_id, user_id) do update set role = excluded.role, title = excluded.title, is_active = true, deleted_at = null`,
+    [uuidv7(), orgId, id, p.role ?? "member", p.title, sys.cfg.origin ?? null],
+  );
   const profile = { user_id: id, name: p.name, title: p.title, org_unit_id: p.unit ?? null, location_id: p.location ?? null, manager_id: p.manager ?? null, roles: p.roles, persona: choose("member_profile", "persona", p.roles.includes("requester") ? ["requester"] : ["agent"]) };
   const existing = await tx.one<{ id: string }>(`select id from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [orgId, id]);
   if (existing) await updateIn(tx, sys, "member_profile", existing.id, clean("member_profile", profile), { trusted: true });
@@ -364,7 +423,7 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const size = DEMO_SIZES[memo.size];
   const rng = batchRng(memo, memo.seed + 7);
-  const tag = orgId.replace(/-/g, "").slice(0, 6);
+  const tag = demoTag(orgId);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   if (memo.cursor === 0) {
     memo.password = readableCode(3, 4);
@@ -598,7 +657,7 @@ function staffedCount(memo: LoadMemo): number {
 async function stepBranchStaff(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const rng = new Rng(memo.seed + 29);
-  const tag = orgId.replace(/-/g, "").slice(0, 6);
+  const tag = demoTag(orgId);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   const itam: NonNullable<LoadMemo["itam"]> = { officers: {}, managers: {}, regional: {} };
   await sys.write(async (tx) => {
@@ -941,8 +1000,11 @@ async function stepItamFlows(a: StepArgs, sys: Ctx): Promise<boolean> {
           bump(memo, "disposal_order");
         }
       } else if (phase === "ledger") {
-        // the year's depreciation and purchases posted month by month (the register reconciles with this ledger)
-        const today = dateOnly(now);
+        // the year's depreciation and purchases posted month by month (the register reconciles with this ledger): the
+        // pack's own items only, the capture keeping to the demo scope's side (financial/service.ts ledgerSide), up to
+        // the month of the organisation's calendar, the one its own capture goes by. (Tehran's month begins three and a
+        // half hours before UTC's: by the UTC date the pack stopped a month short, and nothing else posts its items.)
+        const today = orgToday(sys);
         const periods = new Set<string>();
         for (let d = 0; d <= 370; d += 15) periods.add(periodKeyOf(addDays(today, -d)));
         const year = periodKeyOf(today).slice(0, 4);
@@ -1391,6 +1453,7 @@ export async function backdate(sys: Ctx): Promise<void> {
 /** Run the load from where it stopped until the deadline. Returns true when every step is done. */
 export async function runLoad(cfg: ServerConfig, orgId: string, memo: LoadMemo, deadline: number, onStep?: (memo: LoadMemo) => Promise<void>): Promise<boolean> {
   const sys = await systemCtx(cfg, orgId);
+  delete memo.wait;
   while (memo.step < STEPS.length) {
     if (Date.now() >= deadline) return false;
     const step = STEPS[memo.step];

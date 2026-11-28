@@ -1,6 +1,6 @@
 // /api/auth — sign up, sign in (e-mail and password, a domain account, Windows single sign-on), sign out (here or
 // everywhere), current user, re-authentication, password change and recovery (docs/AD_FA.md for the directory parts).
-import { DEMO_SIGNIN_OFF, demoOrgOf, demoSignInAllowed } from "../modules/demo/signin";
+import { DEMO_SIGNIN_OFF, demoOrgOf, demoSignInRefusal } from "../modules/demo/signin";
 import { z } from "zod";
 import type { Context } from "hono";
 import { router, body, requireUser, limitByIp, rateLimit } from "../http/hono";
@@ -95,9 +95,17 @@ authRoutes.post("/login", async (c) => {
   // for a local-only account that merely has the same e-mail
   let unreachable = false;
   if (!ok && cfg.desktop?.cloudLogin) {
-    const r: { ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean } =
+    const r: { ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean; refused?: string } =
       await cfg.desktop.cloudLogin(input.email, input.password).catch(() => ({ ok: false, unreachable: true }));
     if (r.limited) throw tooMany("نسخهٔ وب تلاش‌های زیاد این حساب را موقتاً نمی‌پذیرد؛ چند دقیقه بعد دوباره امتحان کنید");
+    if (r.refused && user) {
+      // the cloud proved the password and refused this account (its reason is no secret now): a person of the demo pack
+      // of the organisation this app is linked to is told where the personas work (demoSignInRefusal)
+      const demoOrg = await demoOrgOf(cfg.db, user.id);
+      const message = (demoOrg ? await demoSignInRefusal(cfg.db, { id: user.id, prefs: { demo_org: demoOrg } }, demoOrg) : null) || r.refused;
+      await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: "refused_by_cloud" } });
+      throw forbidden(message);
+    }
     unreachable = !!r.unreachable;
     if (r.ok && r.user_id) {
       user = await cfg.db.one(`select id, password_hash, disabled from sm_users where id = $1 and lower(email) = $2`, [r.user_id, input.email]);
@@ -115,10 +123,12 @@ authRoutes.post("/login", async (c) => {
     throw forbidden("حساب شما غیرفعال شده است؛ با مدیر تماس بگیرید");
   }
   // the demo pack's people sign in only while their organisation's administrators allow it (docs/DEMO_FA.md)
+  // (a Windows app linked to the server that holds the pack sends them there: demoSignInRefusal)
   const demoOrg = await demoOrgOf(cfg.db, user.id);
-  if (demoOrg && !(await demoSignInAllowed(cfg.db, demoOrg))) {
-    await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: "demo_signin_off" } });
-    throw forbidden(DEMO_SIGNIN_OFF);
+  const demoRefused = demoOrg ? await demoSignInRefusal(cfg.db, { id: user.id, prefs: { demo_org: demoOrg } }, demoOrg) : null;
+  if (demoRefused) {
+    await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: demoRefused === DEMO_SIGNIN_OFF ? "demo_signin_off" : "demo_linked_app" } });
+    throw forbidden(demoRefused);
   }
   if (cfg.platformAdmins.includes(input.email)) {
     // only while the platform has no active administrator (see sign-up): otherwise whoever made an
@@ -145,11 +155,20 @@ authRoutes.post("/login", async (c) => {
   return c.json({ ok: true, token: kind === "device" ? token : undefined, session_id: session.id, user_id: user.id });
 });
 
-authRoutes.post("/logout", requireUser, async (c) => {
-  await revokeSession(c.get("cfg").db, c.get("session").id, "sign_out");
-  clearSessionCookie(c);
-  return c.json({ ok: true });
-});
+// The cookie is cleared before any database work, the session's own lookup included: a sign-out whose end of the session
+// cannot be written now (a busy or read-only database: a 503) still signs this browser out — the answer keeps the header.
+authRoutes.post(
+  "/logout",
+  async (c, next) => {
+    clearSessionCookie(c);
+    await next();
+  },
+  requireUser,
+  async (c) => {
+    await revokeSession(c.get("cfg").db, c.get("session").id, "sign_out");
+    return c.json({ ok: true });
+  },
+);
 
 authRoutes.get("/me", requireUser, async (c) => {
   const cfg = c.get("cfg");

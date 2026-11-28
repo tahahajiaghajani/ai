@@ -13,7 +13,7 @@
 import type { FlowProblem } from "@shared/flows/types";
 import { hasProcessErrors, validateProcess } from "@shared/process/validate";
 import { assigneeProblems, type AssigneeFacts } from "@shared/process/assignees";
-import { processSteps, type ProcessGraph } from "@shared/process/graph";
+import { formStepOf, processSteps, type ProcessGraph } from "@shared/process/graph";
 import { readSnapshot, snapshotFields, type FormsSnapshot } from "@shared/forms/snapshot";
 import { faDigits } from "@shared/format";
 import type { Ctx } from "../../../context";
@@ -28,6 +28,8 @@ import { assigneeFactsFor } from "../../positions";
 import { propagateAccess } from "../access";
 import { processesRunHere } from "../engine";
 import { isId, loadVersionInfo, peopleNames, type VersionInfo } from "../engine/store";
+import { caseManagers } from "../timers/timer";
+import { demoPeople, isDemoRow } from "../../../db/scope";
 import { cleanDraft, draftRules, graphForms, MAX_DRAFT_BYTES, type ProcessDraft } from "./draft";
 import { versionDiff, type DiffNames, type PublishDiff, type VersionLike } from "./diff";
 
@@ -110,10 +112,49 @@ async function groupNames(q: Queryable, orgId: string, ids: readonly string[]): 
   return new Map(rows.map((r) => [String(r.id), String(r.name)]));
 }
 
-async function diffNames(q: Queryable, orgId: string, users: readonly string[], groups: readonly string[]): Promise<DiffNames & { display: Record<string, string> }> {
-  const [u, g] = await Promise.all([peopleNames(q, users), groupNames(q, orgId, groups)]);
-  return { user: (id) => u.get(id) ?? "—", group: (id) => g.get(id) ?? "—", display: Object.fromEntries([...u, ...g]) };
+/** What the steps' people rules of `graphs` name: people, groups, positions and units (the diff says them by name). */
+function ruleRefs(graphs: (ProcessGraph | null | undefined)[]): { users: string[]; groups: string[]; positions: string[]; units: string[] } {
+  const out = { users: [] as string[], groups: [] as string[], positions: [] as string[], units: [] as string[] };
+  for (const g of graphs) {
+    for (const n of g?.nodes ?? []) {
+      if (n.type !== "form_step") continue;
+      const s = formStepOf(n.config);
+      for (const r of [...s.assignees, ...(s.fallback ?? [])]) {
+        if (r.kind === "users") out.users.push(...r.users);
+        if ("members" in r && r.members) out.users.push(...r.members);
+        if (r.kind === "group") out.groups.push(r.group);
+        if (r.kind === "position") {
+          out.positions.push(r.position);
+          if (r.unit) out.units.push(r.unit);
+        }
+      }
+    }
+  }
+  return out;
 }
+
+async function diffNames(q: Queryable, orgId: string, users: readonly string[], groups: readonly string[], graphs: (ProcessGraph | null | undefined)[] = []): Promise<DiffNames & { display: Record<string, string> }> {
+  const refs = ruleRefs(graphs);
+  const [u, g] = await Promise.all([peopleNames(q, [...users, ...refs.users]), groupNames(q, orgId, [...groups, ...refs.groups])]);
+  const keys = [...new Set(refs.positions)];
+  const positions = keys.length
+    ? await q.query<{ id: string; key: string; name: string }>(`select id::text as id, key, name from sm_positions where org_id = $1 and (key = any($2::text[]) or id::text = any($2::text[]))`, [orgId, pgArray(keys)])
+    : [];
+  const unitIds = [...new Set(refs.units.filter(isId))];
+  const units = unitIds.length ? await q.query<{ id: string; name: string }>(`select id::text as id, name from sm_org_units where org_id = $1 and id = any($2::uuid[])`, [orgId, pgArray(unitIds)]) : [];
+  const display = Object.fromEntries([...peopleOnly(u, users), ...groupsOnly(g, groups)]);
+  return {
+    user: (id) => u.get(id) ?? "—",
+    group: (id) => g.get(id) ?? "—",
+    position: (key) => positions.find((p) => p.key === key || p.id === key.toLowerCase())?.name ?? key,
+    unit: (id) => units.find((x) => x.id === id.toLowerCase())?.name ?? "—",
+    display,
+  };
+}
+
+/** The names the answer's `display` carried before (the managers and the publisher, the manager groups). */
+const peopleOnly = (m: Map<string, string>, ids: readonly string[]) => [...m].filter(([k]) => ids.includes(k));
+const groupsOnly = (m: Map<string, string>, ids: readonly string[]) => [...m].filter(([k]) => ids.includes(k));
 
 const asVersionLike = (name: string, d: ProcessDraft, forms: FormsSnapshot | null): VersionLike => ({
   name, graph: d.graph, forms, starters: d.starters, title_template: d.title_template, requester_view: d.requester_view,
@@ -132,8 +173,25 @@ export interface DraftCheck {
   snapshot: FormsSnapshot;
 }
 
-/** Every problem of a draft against the organisation as it is now (errors block a publish). Reads outside any transaction. */
-export async function checkDraft(ctx: Ctx, d: ProcessDraft): Promise<DraftCheck> {
+/**
+ * The demo pack's people among the managers a draft names — by name, or as members of its manager groups — when the
+ * process is the organisation's own (a process of the pack's is managed by the pack's people): their names, and whether
+ * they are all of its managers. Null: none.
+ */
+async function demoManagersOf(ctx: Ctx, processId: string | null, d: ProcessDraft): Promise<{ names: string[]; all: boolean } | null> {
+  if (!processId || (!d.managers.length && !d.manager_groups.length) || (await isDemoRow(ctx.db, ctx.org.id, processId))) return null;
+  const everyone = await caseManagers(ctx.db, { org_id: ctx.org.id, managers: d.managers, manager_groups: d.manager_groups });
+  const pack = await demoPeople(ctx.db, ctx.org.id, everyone);
+  if (!pack.size) return null;
+  const names = await peopleNames(ctx.db, [...pack]);
+  return { names: [...pack].map((u) => names.get(u) ?? "—").sort((a, b) => a.localeCompare(b, "fa")), all: everyone.every((u) => pack.has(u.toLowerCase())) };
+}
+
+/**
+ * Every problem of a draft against the organisation as it is now (errors block a publish). Reads outside any
+ * transaction. `processId`: the draft's process (the demo pack's people among its managers are warned of).
+ */
+export async function checkDraft(ctx: Ctx, d: ProcessDraft, processId: string | null = null): Promise<DraftCheck> {
   const formIds = graphForms(d.graph);
   const { snapshot, problems: formProblems } = await loadFormsSnapshot(ctx.db, ctx, formIds);
   const fields = snapshotFields(snapshot);
@@ -154,6 +212,7 @@ export async function checkDraft(ctx: Ctx, d: ProcessDraft): Promise<DraftCheck>
     assigneeFacts: facts,
     titleTemplate: d.title_template,
     flow: (id) => flows.get(id.toLowerCase()) ?? null,
+    demoManagers: await demoManagersOf(ctx, processId, d),
   });
   for (const m of formProblems) problems.push({ level: "error", message: m });
   // no starters: every member may start
@@ -197,9 +256,9 @@ export async function processDetail(ctx: Ctx, ref: string): Promise<ProcessDetai
   const can = await needDesignRead(ctx);
   const row = await processRow(ctx, ref);
   const draft = cleanDraft(row.draft);
-  const check = await checkDraft(ctx, draft);
+  const check = await checkDraft(ctx, draft, row.id);
   const current = row.current_version_id ? await loadVersionInfo(ctx.db, ctx.org.id, row.current_version_id) : null;
-  const names = await diffNames(ctx.db, ctx.org.id, [...draft.managers, ...(row.published_by ? [row.published_by] : [])], draft.manager_groups);
+  const names = await diffNames(ctx.db, ctx.org.id, [...draft.managers, ...(row.published_by ? [row.published_by] : [])], draft.manager_groups, [draft.graph, current?.graph]);
   const diff = current ? versionDiff(versionLike(current), asVersionLike(row.name, draft, check.snapshot), names) : null;
   const open = await ctx.db.one<{ n: number }>(`select count(*)::int as n from sm_process_cases where org_id = $1 and process_id = $2 and deleted_at is null and state = any($3::text[])`, [ctx.org.id, row.id, pgArray(OPEN)]);
   const { draft: _d, ...process } = row;
@@ -289,9 +348,9 @@ export async function publishPreview(ctx: Ctx, ref: string): Promise<DiffPreview
   const can = await needDesignRead(ctx);
   const row = await processRow(ctx, ref);
   const draft = cleanDraft(row.draft);
-  const check = await checkDraft(ctx, draft);
+  const check = await checkDraft(ctx, draft, row.id);
   const current = row.current_version_id ? await loadVersionInfo(ctx.db, ctx.org.id, row.current_version_id) : null;
-  const names = await diffNames(ctx.db, ctx.org.id, [...draft.managers, ...(current?.managers ?? [])], [...draft.manager_groups, ...(current?.manager_groups ?? [])]);
+  const names = await diffNames(ctx.db, ctx.org.id, [...draft.managers, ...(current?.managers ?? [])], [...draft.manager_groups, ...(current?.manager_groups ?? [])], [draft.graph, current?.graph]);
   return {
     diff: versionDiff(current ? versionLike(current) : null, asVersionLike(row.name, draft, check.snapshot), names),
     problems: check.problems,
@@ -321,10 +380,10 @@ export async function publishProcess(ctx: Ctx, ref: string, input: { note?: stri
   await needAuthority(ctx);
   const row = await processRow(ctx, ref);
   const draft = cleanDraft(row.draft);
-  const check = await checkDraft(ctx, draft);
+  const check = await checkDraft(ctx, draft, row.id);
   if (hasProcessErrors(check.problems)) throw invalid(check.problems);
   const current = row.current_version_id ? await loadVersionInfo(ctx.db, ctx.org.id, row.current_version_id) : null;
-  const names = await diffNames(ctx.db, ctx.org.id, [...draft.managers, ...(current?.managers ?? [])], [...draft.manager_groups, ...(current?.manager_groups ?? [])]);
+  const names = await diffNames(ctx.db, ctx.org.id, [...draft.managers, ...(current?.managers ?? [])], [...draft.manager_groups, ...(current?.manager_groups ?? [])], [draft.graph, current?.graph]);
   const formIds = graphForms(draft.graph);
   const note = String(input.note ?? "").trim().slice(0, 300) || null;
   const sys = await systemCtx(ctx.cfg, ctx.org.id);

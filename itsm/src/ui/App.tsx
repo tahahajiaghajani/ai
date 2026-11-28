@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { lazy, Suspense } from "@ui/lib/lazy";
 import { Routes, Route, Navigate, useLocation } from "react-router";
-import { useSession } from "./lib/session";
+import { isFirstRun, useSession } from "./lib/session";
 import { BrandMark } from "./components/brand";
 import { PageBoundary } from "./components/crash";
 import { loadOrgArea, preloadApp } from "./lib/preload";
@@ -76,7 +76,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
     if (me) preloadApp();
   }, [me]);
   if (loading) return <Loading full />;
-  if (meta?.first_run) return <Navigate to="/setup" replace />;
+  if (isFirstRun(meta, me)) return <Navigate to="/setup" replace />;
   if (!me) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname)}`} replace />;
   return <>{children}</>;
 }

@@ -15,13 +15,31 @@ import { localRoutes } from "./routes/local";
 import { adminRoutes } from "./routes/admin";
 import { recordRoutes } from "./routes/records";
 import { flowHookRoutes } from "./routes/flows";
-import { jobCounter, tick } from "./jobs";
+import { jobCounter, lastTrafficTick, queueHasDue, stampTraffic, tick, trafficClock, trafficTickDue, TRAFFIC_TICK_BUDGET_MS } from "./jobs";
 import "./engine";
 import { migrationStatus, schemaProgress } from "./db/migrate";
 import { APP_NAME, APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
 
 // validation messages that a schema does not word itself come out in Persian
 z.config(z.locales.fa());
+
+/** The budget of the tick after a write request that queued jobs. */
+const AFTER_WRITE_TICK_MS = 4000;
+/** The longest the job probe waits after an answer (a busy pool, a slow database: no tick this time). */
+const PROBE_WAIT_MS = 2000;
+
+/** Is a job due or a worker's lock expired? False when the database does not say so within `PROBE_WAIT_MS`. */
+async function dueWithin(cfg: ServerConfig): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), PROBE_WAIT_MS);
+  });
+  try {
+    return await Promise.race([queueHasDue(cfg.db).catch(() => false), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function createApp(cfg: ServerConfig) {
   const app = new Hono<Env>().basePath("/api");
@@ -31,6 +49,43 @@ export function createApp(cfg: ServerConfig) {
     await next();
   });
   app.use("*", sameOrigin);
+  // The job queue from the API's own traffic, where cfg.waitUntil runs work after the answer (the web version: Vercel
+  // has no timer between requests; the server edition: it wakes the scheduler leader). Once the answer is ready:
+  // - a write that queued jobs (record events, a new organisation's seeds…) asks for a tick of 4 s when a job is due;
+  // - the web version's other requests, at most once a minute per instance, ask for one of 8 s when a job is due or a
+  //   worker's lock expired (a new organisation's seeds come due 10 minutes after it was made, and without a heartbeat
+  //   nothing else would run them).
+  // The probe (`queueHasDue`, two partial-index lookups, about 1 ms) runs in that work, after the answer, and the tick
+  // only when there is work: a probe that waits for a connection (a busy pool) holds no answer back and gives up after
+  // `PROBE_WAIT_MS` without a tick. GET /api/cron/tick ticks itself (20 s, with the cleanup); request ticks never clean up.
+  app.use("*", async (c, next) => {
+    const before = jobCounter();
+    await next();
+    const waitUntil = cfg.waitUntil;
+    if (!waitUntil || c.req.path.startsWith("/api/cron/")) return;
+    const run = (budgetMs: number, probe: boolean) =>
+      waitUntil(async () => {
+        try {
+          if (probe && !(await dueWithin(cfg))) return;
+          await tick(cfg, { budgetMs, cleanup: false });
+        } catch (e) {
+          cfg.log.warn("job tick failed", String((e as Error)?.message ?? e));
+        }
+      });
+    const m = c.req.method;
+    if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && jobCounter() !== before) {
+      // the server edition's waitUntil only wakes its scheduler leader, whose own tick claims what is due: no probe
+      if (cfg.server) run(AFTER_WRITE_TICK_MS, false);
+      else {
+        stampTraffic();
+        run(AFTER_WRITE_TICK_MS, true);
+      }
+      return;
+    }
+    if (cfg.mode !== "cloud" || cfg.server || !trafficTickDue(trafficClock(), lastTrafficTick())) return;
+    stampTraffic();
+    run(TRAFFIC_TICK_BUDGET_MS, true);
+  });
   app.onError((err, c) => errorResponse(err, c));
   app.notFound((c) => c.json({ error: { code: "not_found", message: "این مسیر وجود ندارد" } }, 404));
 
@@ -60,8 +115,15 @@ export function createApp(cfg: ServerConfig) {
 
   app.get("/meta", optionalUser, async (c) => {
     const status = await migrationStatus(cfg.db).catch(() => null);
-    const users = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`).catch(() => null);
+    // only a missing accounts table is a first run: a count that failed (busy, slow, gone) is the database's 503, never
+    // «no account yet», which sent a signed-in person round / → /setup → /signup → / and showed anyone the sign-up form
+    const users = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`).catch((e) => {
+      if ((e as { code?: string } | null)?.code === "42P01") return null;
+      throw e;
+    });
     const user = c.get("user");
+    // a session proves an account exists
+    const none = !user && (users?.n ?? 0) === 0;
     return c.json({
       app: APP_NAME,
       version: APP_VERSION,
@@ -70,11 +132,11 @@ export function createApp(cfg: ServerConfig) {
       // the web version, the Windows app, or the server edition (Windows Server on an organisation's intranet)
       edition: cfg.server ? "server" : cfg.mode === "desktop" ? "desktop" : "web",
       server: cfg.server ? cfg.server.info() : null,
-      allow_signup: cfg.allowSignup || (users?.n ?? 0) === 0,
-      first_run: (users?.n ?? 0) === 0,
+      allow_signup: cfg.allowSignup || none,
+      first_run: none,
       schema: status ? { pending: status.pending, current: status.current, latest: status.latest } : null,
       signed_in: !!user,
-      desktop: cfg.mode === "desktop" && (user || (users?.n ?? 0) === 0) ? await cfg.desktop?.info().catch(() => null) : null,
+      desktop: cfg.mode === "desktop" && (user || none) ? await cfg.desktop?.info().catch(() => null) : null,
     });
   });
 
@@ -87,7 +149,8 @@ export function createApp(cfg: ServerConfig) {
   });
 
   // the job queue's heartbeat on the web version: Supabase pg_cron + pg_net, a GitHub Actions schedule or Vercel
-  // cron call it (Bearer CRON_SECRET when it is set; without one, at most every 10 s per instance)
+  // cron call it (Bearer CRON_SECRET when it is set; without one, at most every 10 s per instance). The only web tick
+  // that also deletes finished jobs past their retention (request ticks pass cleanup: false)
   app.on(["GET", "POST"], "/cron/tick", async (c) => {
     const secret = process.env.CRON_SECRET;
     if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ ok: false }, 401);
@@ -102,15 +165,6 @@ export function createApp(cfg: ServerConfig) {
 
   const org = new Hono<Env>();
   org.use("*", requireUser, loadOrg);
-  // after a write that queued jobs (record events…), the web version runs them once the response is sent
-  org.use("*", async (c, next) => {
-    const before = jobCounter();
-    await next();
-    const m = c.req.method;
-    if (cfg.waitUntil && m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && jobCounter() !== before) {
-      cfg.waitUntil(() => tick(cfg, { budgetMs: 4000 }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
-    }
-  });
   org.route("/", orgRoutes);
   org.route("/", recordRoutes);
   org.route("/data", dataRoutes);

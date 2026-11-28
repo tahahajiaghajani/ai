@@ -11,6 +11,9 @@ import { prepareSubject, subjectOf } from "../../../access";
 import { isSystemCtx } from "../../../engine";
 import { heldPositions } from "../../positions";
 import { myGroupsSql } from "../access/sources";
+import { demoPeople } from "../../../db/scope";
+import { isPackCase, packOnRealCase } from "../engine/boundary";
+import { caseManagers } from "../timers/timer";
 import { isId, peopleNames, type CaseRow } from "../engine/store";
 
 export const OPEN_CASE = ["active", "waiting", "attention"];
@@ -76,11 +79,12 @@ export async function orgAdmins(q: Queryable, orgId: string): Promise<string[]> 
 const hasManagers = (kase: Pick<CaseRow, "managers" | "manager_groups">): boolean => (kase.managers ?? []).some(isId) || (kase.manager_groups ?? []).some(isId);
 
 /**
- * Does the caller manage the case: one of its managers (by name or a valid group membership), or — for a case that
- * names none — an administrator of the organisation (owner, «مدیر», or `process_design` approve). The same rule as
- * the recovery services (F4b).
+ * Is the caller named to manage the case: one of its managers (by name or a valid group membership), or — for a case
+ * that names none — an administrator of the organisation (owner, «مدیر», or `process_design` approve). The same rule as
+ * the recovery services (F4b). One of the demo pack's people may be named so on an organisation's own case: they do not
+ * manage it (`managesCase`), and their manager actions there are refused (FINAL-1's `demoRealWork`).
  */
-export async function managesCase(q: Queryable, ctx: Ctx, kase: Pick<CaseRow, "managers" | "manager_groups">): Promise<boolean> {
+export async function namedManager(q: Queryable, ctx: Ctx, kase: Pick<CaseRow, "managers" | "manager_groups">): Promise<boolean> {
   if (isSystemCtx(ctx)) return true;
   if (!hasManagers(kase)) {
     if (ctx.member?.role === "owner" || ctx.member?.role === "admin") return true;
@@ -96,6 +100,32 @@ export async function managesCase(q: Queryable, ctx: Ctx, kase: Pick<CaseRow, "m
   if (!(kase.manager_groups ?? []).length) return false;
   const r = await q.one<{ ok: boolean }>(`select coalesce($1::jsonb ?| ${myGroupsSql("$2::uuid")}, false) as ok`, [JSON.stringify(kase.manager_groups), ctx.user.id]);
   return r?.ok === true;
+}
+
+/**
+ * The managers of a case who may act on it: on a case of the organisation's own, never the demo pack's people it names
+ * or its manager groups hold (FINAL-1) — so one whose managers, by name and in its groups, are all the pack's falls to
+ * the organisation's administrators, as a case naming none does (the designer and the publish warn of it: validate.ts).
+ */
+export async function actingManagers(q: Queryable, orgId: string, kase: Pick<CaseRow, "id" | "managers" | "manager_groups">): Promise<Pick<CaseRow, "managers" | "manager_groups">> {
+  if (!hasManagers(kase)) return kase;
+  const named = (kase.managers ?? []).filter(isId);
+  const everyone = await caseManagers(q, { org_id: orgId, managers: named, manager_groups: (kase.manager_groups ?? []).filter(isId) });
+  const pack = await demoPeople(q, orgId, everyone);
+  if (!pack.size || (await isPackCase(q, orgId, kase.id))) return kase;
+  if (everyone.every((u) => pack.has(u.toLowerCase()))) return { managers: [], manager_groups: [] };
+  return { managers: named.filter((u) => !pack.has(u.toLowerCase())), manager_groups: kase.manager_groups };
+}
+
+/**
+ * Does the caller manage the case (`namedManager` of its `actingManagers`) — never one of the demo pack's people on a
+ * case of the organisation's own: the pack takes none of its work (docs/DEMO_FA.md), so the case page offers them no
+ * manager action there (they keep whatever they read by the other rules).
+ */
+export async function managesCase(q: Queryable, ctx: Ctx, kase: Pick<CaseRow, "id" | "managers" | "manager_groups">): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  if (await packOnRealCase(q, ctx, kase.id)) return false;
+  return namedManager(q, ctx, await actingManagers(q, ctx.org.id, kase));
 }
 
 /** Group names by id (a display map). */

@@ -18,6 +18,7 @@ import { ToggleChip } from "../../../../components/inputs";
 import { POSITION_KEYS, positionsApi, type PositionOverview } from "./api";
 import { POSITION_CHIPS, filterPositions, holdersText, positionsAccess, sourcesText, unitKindLabel, type PositionChip } from "./model";
 import { PositionSheet } from "./PositionSheet";
+import { DemoTag } from "../../kit/demo";
 import "../../../../records/records.css";
 import "../fields/fields.css";
 import "./positions.css";
@@ -120,7 +121,10 @@ export default function PositionsPage() {
                 title: "نقش",
                 render: (_: unknown, r) => (
                   <span className="wff-cell-2">
-                    <span className="text-ink">{r.name}</span>
+                    <span className="text-ink">
+                      {r.name}
+                      {r.demo ? <DemoTag title="نقش سازمانی دادهٔ نمایشی" /> : null}
+                    </span>
                     <bdi dir="ltr" className="ds-mono rk-hint">
                       {r.key}
                     </bdi>

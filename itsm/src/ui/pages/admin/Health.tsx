@@ -6,6 +6,8 @@ import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
 import { Card } from "../../components/blocks";
 import { fa } from "../../lib/fa";
+import { useSession } from "../../lib/session";
+import { EDITION_NAMES, editionOf } from "../../lib/edition";
 import { ICON, When, bytes, useAdminQuery } from "./ui";
 
 interface Health {
@@ -23,6 +25,8 @@ const TONE_ICON = { ok: CheckCircle2, warning: TriangleAlert, danger: CircleAler
 
 export default function HealthPage() {
   const q = useAdminQuery<Health>(["health"], "/admin/health");
+  // the edition by the session (the server edition's API mode is "cloud", as the web version's)
+  const { meta } = useSession();
   const h = q.data;
   return (
     <div>
@@ -41,7 +45,7 @@ export default function HealthPage() {
         <>
           <section className="ad-kpis" aria-label="خلاصه">
             <StatCard title="وضعیت" value={h.ok ? "رو به راه" : "نیازمند توجه"} hint={h.ok ? "همهٔ بررسی‌ها درست است" : `${fa(h.checks.filter((c) => c.tone === "warning" || c.tone === "danger").length)} مورد نیازمند توجه`} />
-            <StatCard title="نسخه" value={<span className="ds-num ds-latin">{h.version}</span>} hint={h.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز"} />
+            <StatCard title="نسخه" value={<span className="ds-num ds-latin">{h.version}</span>} hint={EDITION_NAMES[editionOf(meta)]} />
             <StatCard title="ساختار پایگاه داده" value={<span className="ds-num">{fa(h.migrations.applied)} از {fa(h.migrations.expected)}</span>} hint={h.migrations.latest ? <span className="ds-latin">{h.migrations.latest}</span> : undefined} />
             <StatCard title="حجم پایگاه داده" value={<span className="ds-num">{bytes(h.db.bytes)}</span>} hint={h.db.limit ? `از ${bytes(h.db.limit)}` : h.db.kind === "pglite" ? "پایگاه دادهٔ همین رایانه" : undefined} />
           </section>

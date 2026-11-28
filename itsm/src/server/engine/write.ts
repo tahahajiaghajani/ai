@@ -281,6 +281,8 @@ async function pipeline(p: PipelineInput): Promise<Row> {
 
   const next: Row = creating ? { id } : { ...prev };
   for (const k of changed) next[k] = values[k];
+  // reference fields that took their default (a default is only a suggestion: `dropMissingDefaults`)
+  const defaulted = new Map<string, unknown>();
   if (creating) {
     for (const f of def.fields) {
       if (f.base || f.name in values) continue;
@@ -288,6 +290,7 @@ async function pipeline(p: PipelineInput): Promise<Row> {
       if (d !== undefined && d !== null) {
         next[f.name] = d;
         changed.add(f.name);
+        if (FIELD_TYPES[f.type].family === "ref") defaulted.set(f.name, d);
       } else if (f.type === "bool") next[f.name] = false;
       else next[f.name] = null;
     }
@@ -351,7 +354,9 @@ async function pipeline(p: PipelineInput): Promise<Row> {
     }
   }
   problems.throwIfAny();
-  await checkRefs(tx, ctx, def, next, changed, schema, env, problems);
+  // defaults are checked once, on their own (a default naming a missing row is dropped); the rest as always
+  const checked = defaulted.size ? await dropMissingDefaults(tx, ctx, def, next, changed, defaulted, schema, env) : null;
+  await checkRefs(tx, ctx, def, next, checked ? [...changed].filter((n) => !checked.has(n)) : changed, schema, env, problems);
   problems.throwIfAny();
   if (transition) {
     const tw = { ...w, transition };
@@ -412,6 +417,27 @@ async function beforeWriteHooks(hooks: ReturnType<typeof hooksFor>, w: WriteArgs
     else changed.delete(k);
   }
   problems.throwIfAny();
+}
+
+/**
+ * A reference field's default names a row that no longer exists (a library field's default person who left, a group
+ * the demo pack's purge took away): the default is dropped and the write goes on — a default is only a suggestion and
+ * never the reason a record cannot be made. A value the caller or a hook gave is checked as always.
+ */
+async function dropMissingDefaults(tx: Tx, ctx: Ctx, def: TableDef, next: Row, changed: Set<string>, defaulted: Map<string, unknown>, schema: OrgSchema, env: CondEnv): Promise<Set<string>> {
+  const names = [...defaulted.keys()].filter((n) => {
+    const f = def.fields.find((x) => x.name === n);
+    return !!f && changed.has(n) && sameValue(f, next[n], defaulted.get(n));
+  });
+  if (!names.length) return new Set();
+  const missing = await checkRefs(tx, ctx, def, next, names, schema, env);
+  for (const n of Object.keys(missing.fields)) {
+    const f = def.fields.find((x) => x.name === n);
+    next[n] = f && FIELD_TYPES[f.type].array ? [] : null;
+    changed.delete(n);
+  }
+  // the fields checked here (kept or dropped) are not checked again
+  return new Set(names);
 }
 
 function transitionError(def: TableDef, from: unknown, to: unknown): AppError {

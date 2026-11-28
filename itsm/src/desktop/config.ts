@@ -17,6 +17,8 @@ export interface LocalConfig {
     email: string | null;
     linked_at: string | null;
     auto_sync: boolean;
+    /** what the link reaches (its /api/meta): an organisation's server edition or the web version; unknown on older links */
+    edition?: "web" | "server" | null;
   };
   client: { server_url: string | null };
   created_at: string;

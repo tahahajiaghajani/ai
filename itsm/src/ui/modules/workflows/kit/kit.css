@@ -23,6 +23,10 @@
 .wfk-node-st.is-active svg {
   color: var(--ds-state-progress);
 }
+.wfk-st.is-waiting svg,
+.wfk-node-st.is-waiting svg {
+  color: var(--ds-state-hold);
+}
 .wfk-st.is-mine,
 .wfk-node-st.is-mine {
   color: var(--ds-accent-text);
@@ -194,6 +198,9 @@
 }
 .wfk-node.is-active .wfk-node-main {
   border-inline-start: 3px solid var(--ds-state-progress);
+}
+.wfk-node.is-waiting .wfk-node-main {
+  border-inline-start: 3px solid var(--ds-state-hold);
 }
 .wfk-node.is-mine .wfk-node-main {
   border: 2px solid var(--ds-accent);
@@ -591,6 +598,31 @@ button.wfk-list-btn:focus-visible {
   background: var(--ds-hover);
 }
 .wfk-holders small {
+  color: var(--ds-text-3);
+}
+/* under a scope that depends on each case: the holders by unit, none ticked as if all were included */
+.wfk-hgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-block: 2px;
+}
+.wfk-hgroup + .wfk-hgroup {
+  border-block-start: 1px solid var(--ds-line);
+  padding-block-start: 4px;
+}
+.wfk-hunit {
+  font-size: 12px;
+  color: var(--ds-text-3);
+  padding-inline: 6px;
+}
+.wfk-hperson {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+}
+.wfk-est-demo {
   color: var(--ds-text-3);
 }
 .wfk-line {

@@ -10,11 +10,14 @@
 //   · POST /process/start, POST /process/tasks/:id/submit — JSON, or multipart (`payload` + `files`, a value
 //     `{ upload: n }` names the n-th file) when files go with it
 //   · POST|DELETE /process/tasks/:id/claim, POST /process/cases/:id/{reassign,pause,resume,cancel,resume-from}
+//   · POST /process/cases/:id/reresolve  the managers' «دوباره پیدا کردن انجام‌دهنده» of a waiting step (1.1.5)
 // Drafts have no /process route: they are `process_draft` rows of the record API (own rows only, never synchronised),
 // one per step or per start. The conversation is the case's journal (comments).
 // The response types are F4c's (src/server/modules/process/api/{inbox,cases,actions}.ts, engine/service.ts), copied
-// here: the UI imports no server code.
+// here: the UI imports no server code. Release 1.1.5's additions (a waiting step's why, the re-resolve, the demo pack's
+// cases) are the shared contract of @shared/process/waiting.
 import type { NodeStatusView, ProcessGraph, StepOutcome } from "@shared/process";
+import type { ReresolveInput, ReresolveResult, StepWaiting } from "@shared/process/waiting";
 import type { Right } from "@shared/forms/layout";
 import type { FormsSnapshot } from "@shared/forms/snapshot";
 import type { FieldDef } from "@shared/model/types";
@@ -56,6 +59,8 @@ export interface InboxRow {
   can_act: boolean;
   /** the app route that opens it: workflows/c/:case/s/:task, or r/:table/:id */
   link: string;
+  /** a case of the demo pack («نمایشی»; 1.1.5) */
+  demo?: boolean;
 }
 
 export interface InboxChip {
@@ -303,6 +308,8 @@ export interface CaseCan {
   resume: boolean;
   reassign: boolean;
   resume_from: boolean;
+  /** «دوباره پیدا کردن انجام‌دهنده»: a manager, a step waiting (1.1.5) */
+  reresolve?: boolean;
 }
 
 export interface CaseDetail {
@@ -319,6 +326,11 @@ export interface CaseDetail {
   due_at: string | null;
   history: { tasks: HistoryTask[]; submissions: HistorySubmission[]; journal: JournalEntry[] };
   display: Record<string, string>;
+  /** the steps whose open round has no open task, by node id: why (nobody, or more than the step takes); the notes and
+   *  candidates only for the case's managers (1.1.5) */
+  waiting?: Record<string, StepWaiting>;
+  /** the case is a row of the demo pack (1.1.5) */
+  demo?: boolean;
 }
 
 /** A file of the case (an attachment a «پیوست» field holds). */
@@ -509,6 +521,8 @@ export const userApi = {
   cancel: (api: OrgApi, caseId: string, comment?: string | null) =>
     api.post<{ result: SubmitResult["result"] | "refused"; by: "manager" | "requester"; note?: string | null }>(`/process/cases/${enc(caseId)}/cancel`, { comment: comment || null }),
   resumeFrom: (api: OrgApi, caseId: string, node: string, comment?: string | null) => api.post<unknown>(`/process/cases/${enc(caseId)}/resume-from`, { node, comment: comment || null }),
+  /** «دوباره پیدا کردن انجام‌دهنده»: the case's managers run a waiting step's rules again (this version's, or the current one's) */
+  reresolve: (api: OrgApi, caseId: string, body: ReresolveInput) => api.post<ReresolveResult>(`/process/cases/${enc(caseId)}/reresolve`, body),
 
   /** The conversation «گفت‌وگو»: the case's comments. */
   talk: (api: OrgApi, caseId: string) => recordsApi.journal(api, "process_case", caseId, { kinds: ["comment"], limit: 100 }),

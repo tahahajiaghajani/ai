@@ -22,11 +22,14 @@ import { orgStatus, statusError } from "../modules/platform/org-admin";
 import { CREATED_HERE_SQL, lockActiveOwners, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
 import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
 import type { Area, Level, Role } from "@shared/permissions";
+import type { TableDef } from "@shared/model/types";
 import { APP_VERSION_HEADER, SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
 import { openUploadWindow } from "../modules/process/sync/upload";
+import { queueReresolve } from "../modules/process/reresolve/queue";
+import { judgePurged, namesPurged, purgedInPush, reviewPushed, type PurgedVerdict, type StoredRecord } from "../modules/demo/pushed";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
@@ -197,7 +200,9 @@ syncRoutes.post("/push", async (c) => {
 });
 
 async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
-  const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate }[] = [];
+  // `purged`: the row was demo data a purge removed, or belongs to it (modules/demo/pushed.ts) — a 1.1.5 app drops its
+  // copy too; every app drops the outbox entry of a «skipped» row
+  const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate; purged?: boolean }[] = [];
   // apply order, then the modules' own (a ledger after the record it traces, in its own sequence): a Windows app sends its
   // outbox in whatever order it reads it; a module judging a row may look at the push's other rows (setPushBatch)
   const list = [...input.aggregates].sort(comparePush);
@@ -214,6 +219,22 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
   };
   await ctx.write(async (tx) => {
     await tx.query("set local itsm.applying = 'on'");
+    // a membership written that came, went or took another role (the members page's rule, routes/org.ts)
+    let peopleMoved = false;
+    // the ids a demo purge removed that this push names (one query; none for an organisation that never purged a pack)
+    const purged = await purgedInPush(tx, ctx.org.id, list as WireAggregate[]);
+    /** The stored row wins over the push: handed back exactly as a pull would send it to this account (never more). */
+    const stored = async (agg: WireAggregate, def: AggregateDef, rev: number) => {
+      if (def.engine) {
+        const rows = await tx.query<Record<string, unknown>>(`select * from ${ident(def.table)} where id = $1 and org_id = $2`, [agg.id, ctx.org.id]);
+        const seen = await replicaRows(tx, ctx, def, rows);
+        if (!seen.aggregates.length) results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: "این مورد در دسترس شما نیست" });
+        else results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev, aggregate: seen.aggregates[0] });
+        return;
+      }
+      const [winner] = await readAggregates(tx, def, [agg.id]);
+      results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev, aggregate: winner });
+    };
     for (const agg of list as WireAggregate[]) {
       const def = BY_ENTITY.get(agg.entity);
       if (!def) {
@@ -229,6 +250,14 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
       if (def.entity === "org" ? agg.id !== ctx.org.id : agg.row.org_id != null && agg.row.org_id !== ctx.org.id) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "سازمان نامعتبر" });
         continue;
+      }
+      // a row a demo purge removed is never brought back; a side row or membership of purged data neither
+      if (purged.size && (def.engine !== "record" || purged.has(agg.id.toLowerCase()))) {
+        const v = judgePurged(def, null, agg, null, purged);
+        if (v.kind === "drop") {
+          results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
+          continue;
+        }
       }
       if (def.entity === "member") {
         const u = await tx.one(`select 1 from sm_users where id = $1`, [agg.row.user_id]);
@@ -253,19 +282,31 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         // either (refusing it would leave the desktop with its outdated copy for good). An engine
         // row goes back exactly as a pull would send it to this account — and a row it may not
         // read is not handed back at all
-        if (def.engine) {
-          const stored = await tx.query<Record<string, unknown>>(`select * from ${ident(def.table)} where id = $1 and org_id = $2`, [agg.id, ctx.org.id]);
-          const seen = await replicaRows(tx, ctx, def, stored);
-          if (!seen.aggregates.length) {
-            results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: "این مورد در دسترس شما نیست" });
-            continue;
-          }
-          results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: seen.aggregates[0] });
+        await stored(agg, def, existing.rev);
+        continue;
+      }
+      // a record that names what a demo purge removed: a new one that belongs to it is not stored (the purge would have
+      // removed it) and a pointer of a new one is emptied; a stored one keeps what the server holds there and takes the
+      // push's other changes; a definition whose allow-list, scope or producer would name only purged data is never
+      // stored widened — a new one is stored ended, a stored one keeps the server's copy whole (modules/demo/pushed.ts)
+      let handBack: { v: Extract<PurgedVerdict, { kind: "ended" }>; tdef: TableDef } | null = null;
+      if (purged.size && def.engine === "record" && namesPurged(agg, purged)) {
+        const held = existing ? await tx.one<StoredRecord>(`select custom from ${ident(def.table)} where id = $1`, [agg.id]) : null;
+        const tdef = (await orgSchema(ctx, tx)).def(agg.entity) ?? null;
+        const v = judgePurged(def, tdef, agg, existing ? (held ?? {}) : null, purged);
+        if (v.kind === "drop") {
+          results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
+          // its journal, history, attachments and links in this push (they come after it) go with it
+          purged.add(agg.id.toLowerCase());
           continue;
         }
-        const [winner] = await readAggregates(tx, def, [agg.id]);
-        results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
-        continue;
+        if (v.kind === "stored" && existing) {
+          // the server's copy stands (the purge's own ending of it): nothing of the push, and the app takes the copy
+          if (tdef) await reviewPushed(tx, ctx.org.id, tdef, agg.id, v);
+          await stored(agg, def, existing.rev);
+          continue;
+        }
+        if (v.kind === "ended" && tdef) handBack = { v, tdef };
       }
       // a module's own rules for a pushed aggregate (the same rules its routes apply); the engine's for its rows
       const engineState: { prev?: Record<string, unknown> | null } = {};
@@ -274,7 +315,8 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: ruled });
         continue;
       }
-      let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean } } | null = null;
+      // `people`: the membership came, went or took another role — a workflow step waiting with nobody may lack exactly it
+      let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean }; people: boolean } | null = null;
       if (def.entity === "member") {
         // the members page's rules (routes/org.ts): owners only by owners, nobody changes themselves
         // or grants above their own access, and the organisation keeps an active owner
@@ -311,20 +353,28 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
             continue;
           }
         }
-        if (!unchanged) memberChange = { was, next };
+        if (!unchanged) memberChange = { was, next, people: wasLive !== next.live || (!!was && was.role !== next.role) };
       }
       try {
         const r = await writeAggregate(tx, def, { ...agg, row: { ...agg.row, origin: input.device_id } }, ctx.org.id, "incoming-yields");
         if (def.engine) await afterEnginePush(tx, ctx, def, agg, engineState);
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
-        results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
+        if (handBack) {
+          // stored ended (switched off, retired or left unpublished, without the purged ids): the app takes the copy as
+          // the server stores it, and the owner reviews it
+          await reviewPushed(tx, ctx.org.id, handBack.tdef, agg.id, handBack.v);
+          await stored(agg, def, now?.rev ?? 0);
+        } else results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
+        if (memberChange?.people) peopleMoved = true;
       } catch (e) {
         // a deadlock or serialization failure aborted the whole push: it is answered 503 and the app pushes again
         if (isTransientDbError(e)) throw e;
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
       }
     }
+    // a workflow step waiting with nobody may lack exactly that person: the organisation's re-resolution, once a push
+    if (peopleMoved) await queueReresolve(tx, ctx.org.id);
   });
   for (const e of memberEvents) {
     const email = (await ctx.db.one<{ email: string }>(`select email from sm_users where id = $1`, [e.user_id]))?.email ?? null;

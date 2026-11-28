@@ -117,12 +117,17 @@ export async function renormalize(sys: Ctx): Promise<{ changed: number }> {
   return { changed: changes.length };
 }
 
-/** One reconciliation run: the effective licence position of every software model with installs or entitlements. */
-export async function reconcile(sys: Ctx, trigger: "manual" | "schedule" | "change" = "manual"): Promise<{ run_id: string; products: number; under_licensed: number }> {
+/**
+ * One reconciliation run: the effective licence position of every software model with installs or entitlements.
+ * `started` learns the run's id at once (a job names it in its payload, so the run never stays «running» if its worker
+ * stops: the job's exhausted hook, `reconcileExhausted`).
+ */
+export async function reconcile(sys: Ctx, trigger: "manual" | "schedule" | "change" = "manual", opts: { started?: (runId: string) => Promise<void> } = {}): Promise<{ run_id: string; products: number; under_licensed: number }> {
   const today = orgToday(sys);
   const cfg = await itamConfig(sys.db, sys);
   const run = await sys.write((tx) => createIn(tx, sys, "license_reconcile_run", { status: "running", trigger, started_at: new Date().toISOString() }, { trusted: true }));
   try {
+    await opts.started?.(String(run.id));
     const models = await liveRows(sys.db, sys, "software_model", null, { limit: 5000 });
     const ents = await liveRows(sys.db, sys, "license_entitlement", { f: "state", op: "in", v: ["active", "expired", "terminated"] } as Cond, { limit: 50000 });
     const installs = await liveRows(sys.db, sys, "software_install", { and: [{ f: "active", op: "eq", v: true }, { f: "software_model_id", op: "nempty" }] } as Cond, { limit: 500000 });
@@ -187,6 +192,14 @@ export async function reconcile(sys: Ctx, trigger: "manual" | "schedule" | "chan
     await sys.write((tx) => updateIn(tx, sys, "license_reconcile_run", run.id, { status: "failed", finished_at: new Date().toISOString(), error: String((e as Error).message ?? e).slice(0, 500) }, { trusted: true }));
     throw e;
   }
+}
+
+/** A job's reconciliation run that stayed «running» (its worker stopped at the job's last attempt) ends «failed». */
+export async function reconcileExhausted(sys: Ctx, runId: string, error: string): Promise<void> {
+  await sys.write(async (tx) => {
+    const r = await liveRow(tx, sys, "license_reconcile_run", runId);
+    if (r?.status === "running") await updateIn(tx, sys, "license_reconcile_run", runId, { status: "failed", finished_at: new Date().toISOString(), error: error.slice(0, 500) }, { trusted: true });
+  });
 }
 
 /** The compliance view (ITAM-058/059/066), read with the caller's access. */

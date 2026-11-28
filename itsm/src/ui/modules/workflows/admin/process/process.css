@@ -612,7 +612,8 @@
   color: var(--ds-text-2);
 }
 .wfp-who-list > li > .wfk-warn,
-.wfp-who-list > li > .rk-hint {
+.wfp-who-list > li > .rk-hint,
+.wfp-who-list > li > .blk-note {
   margin: 0 10px 6px;
 }
 .wfp-stepform {

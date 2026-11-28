@@ -79,7 +79,7 @@ export interface Published {
 export async function publish(
   w: World,
   graph: ProcessGraph,
-  opts: { name?: string; forms?: string[]; starters?: unknown[]; title?: string | null; managers?: string[]; confidential?: boolean; process?: string } = {},
+  opts: { name?: string; forms?: string[]; starters?: unknown[]; title?: string | null; managers?: string[]; manager_groups?: string[]; confidential?: boolean; process?: string } = {},
 ): Promise<Published> {
   const n = ++seq;
   const name = opts.name ?? `گردش‌کار ${n}`;
@@ -96,7 +96,7 @@ export async function publish(
       "process_version",
       {
         process_id: procId, name, version_no: (prior?.n ?? 0) + 1, graph, forms: snapshot, starters: opts.starters ?? [], title_template: opts.title ?? null,
-        managers: opts.managers ?? [], confidential: opts.confidential ?? false, published_at: new Date().toISOString(),
+        managers: opts.managers ?? [], manager_groups: opts.manager_groups ?? [], confidential: opts.confidential ?? false, published_at: new Date().toISOString(),
       },
       { trusted: true },
     )

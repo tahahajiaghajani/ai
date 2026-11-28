@@ -111,6 +111,12 @@ export interface WalGuard {
   track<T>(fn: () => Promise<T>): Promise<T>;
   /** CHECKPOINT now (after an open transaction ends); concurrent callers share one. */
   checkpoint(reason: string): Promise<CheckpointInfo>;
+  /**
+   * Holds the scheduler's own checkpoints off — the hard limit's too — until the returned release is called: an online
+   * backup (src/desktop/backup-stream.ts) copies log segments a checkpoint would remove or recycle meanwhile. Holds nest;
+   * a `checkpoint()` asked for explicitly (close, the migrations, a backup's own) still runs.
+   */
+  hold(): () => void;
   /** The scheduler. */
   start(): void;
   stop(): void;
@@ -139,6 +145,8 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
   let timer: unknown = null;
   let stopped = true;
   let running: Promise<CheckpointInfo> | null = null;
+  /** holds of the scheduler's checkpoints (`hold`) */
+  let held = 0;
   const stats: WalStats = { checkpoints: 0, total_ms: 0, max_ms: 0, last: null };
 
   const idle = () => inflight === 0 && clock.now() - lastActivity >= o.idleMs;
@@ -156,6 +164,8 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
     if (timer !== null) clock.clearTimeout(timer);
     timer = null;
     try {
+      // held (an online backup copies the log): no look and no checkpoint of the scheduler's until the release
+      if (held > 0) return;
       if (clock.now() - lastPoll >= pollEvery()) {
         const d = await walSinceCheckpoint(pg);
         lastPoll = clock.now();
@@ -224,6 +234,15 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
         running = null;
       });
       return running;
+    },
+    hold() {
+      held++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        held--;
+      };
     },
     start() {
       if (!stopped) return;

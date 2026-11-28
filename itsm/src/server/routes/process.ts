@@ -24,6 +24,7 @@
 //   POST   /process/tasks/:id/submit              «انجام مرحله» (JSON, or multipart: `payload` + `files`)
 //   POST   /process/tasks/:id/claim               «برداشتن کار» (DELETE: put it back)
 //   POST   /process/cases/:id/reassign|pause|resume|cancel|resume-from   the managers' actions (cancel: also the requester's)
+//   POST   /process/cases/:id/reresolve           «دوباره پیدا کردن انجام‌دهنده» of a waiting step (managers; 1.1.5)
 import { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
 import { router, body, query, type C } from "../http/hono";
@@ -35,8 +36,8 @@ import {
   createProcess, processDetail, processVersions, publishPreview, publishProcess, restoreVersion, retireProcess, saveDraft,
 } from "../modules/process/publish";
 import {
-  caseDetail, casePrint, casesList, cancelCaseAs, claimStep, doneSteps, inbox, inboxCount, myProcesses, pauseCase, processView, reassignStep, resumeCase, resumeFrom,
-  startProcess, submitStep,
+  caseDetail, casePrint, casesList, cancelCaseAs, claimStep, doneSteps, inbox, inboxCount, myProcesses, pauseCase, processView, reassignStep, reresolveStep, resumeCase,
+  resumeFrom, startProcess, submitStep,
 } from "../modules/process/api";
 
 export const processRoutes = router();
@@ -200,6 +201,10 @@ processRoutes.delete("/tasks/:id/claim", async (c) => c.json(await claimStep(c.g
 processRoutes.post("/cases/:id/reassign", async (c) => {
   const input = await body(c, z.object({ step: z.string().min(1).max(40), task: z.string().uuid().nullish(), to: z.array(z.string().uuid()).min(1).max(50), comment: z.string().max(1000).nullish() }));
   return c.json(await reassignStep(c.get("ctx"), c.req.param("id"), input));
+});
+processRoutes.post("/cases/:id/reresolve", async (c) => {
+  const input = await body(c, z.object({ step: z.string().min(1).max(40), rules: z.enum(["case", "current"]).optional() }));
+  return c.json(await reresolveStep(c.get("ctx"), c.req.param("id"), input));
 });
 processRoutes.post("/cases/:id/pause", async (c) => c.json(await pauseCase(c.get("ctx"), c.req.param("id"), await body(c, note))));
 processRoutes.post("/cases/:id/resume", async (c) => c.json(await resumeCase(c.get("ctx"), c.req.param("id"), await body(c, note))));

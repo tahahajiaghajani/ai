@@ -199,7 +199,18 @@ export function installDocs(): void {
   if (installed) return;
   installed = true;
   for (const [label, sw] of [["doc_ocr", "files"], ["doc_summary", "assistant"]] as const) registerAiFeature(label, sw);
-  registerJobHandler(DOC_JOBS.ingest, runIngest);
+  registerJobHandler(DOC_JOBS.ingest, runIngest, {
+    // its last attempt did not finish (its worker stopped during the OCR or the summary, or it failed): a document still
+    // «ingesting» ends «failed» — the library and the viewer would show it being read for good («دوباره خواندن» retries)
+    onExhausted: async (job, ectx) => {
+      const id = String((job.payload as { id?: string }).id ?? "");
+      if (!job.org_id || !id) return;
+      const sys = await systemCtx(ectx.cfg, job.org_id);
+      const { def } = await defFor(sys, DOC_DOCUMENT);
+      const row = await loadReadable(sys.db, sys, def, id, await condEnv(sys));
+      if (row?.status === "ingesting") await update(sys, DOC_DOCUMENT, id, { status: "failed", error: ectx.error.slice(0, 500) }, { trusted: true });
+    },
+  });
 
   registerRagSource({
     table: DOC_DOCUMENT,

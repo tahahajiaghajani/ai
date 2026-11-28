@@ -14,6 +14,13 @@ export const BANK_NAME = "بانک نمونهٔ آفتاب";
 /** The reserved `.example` domain: the pack's accounts can never be anybody's real address. */
 export const BANK_DOMAIN = "aftab-bank.example";
 
+/**
+ * The organisation's mark in the pack's addresses (`agent.<mark>@aftab-bank.example`): the last eight hex digits of its
+ * id. An id is a uuidv7, whose first digits are its creation time — shared by every organisation made within the same
+ * few hours, whose packs then asked for the same addresses (the second load failed on the unique address).
+ */
+export const demoTag = (orgId: string): string => orgId.replace(/-/g, "").slice(-8).toLowerCase();
+
 /** Deterministic randomness (mulberry32): the same seed gives the same bank. */
 export class Rng {
   private s: number;

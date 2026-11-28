@@ -11,7 +11,7 @@
 # Every scenario is timed and reported (report.md / report.json in -Out, with all logs, screenshots and phase files);
 # a failed scenario is recorded and the run goes on where it can; the exit code is 1 when any scenario failed.
 #
-#   powershell -File bank-sim.ps1 -Msi10 Kariz-Server-1.0.0.msi -Msi11 Kariz-Server-1.1.3.msi -Out C:\bank-sim
+#   powershell -File bank-sim.ps1 -Msi10 Kariz-Server-1.0.0.msi -Msi11 Kariz-Server-1.1.5.msi -Out C:\bank-sim
 param(
     [Parameter(Mandatory)][string]$Msi10,
     [Parameter(Mandatory)][string]$Msi11,

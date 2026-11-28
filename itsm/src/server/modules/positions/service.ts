@@ -5,10 +5,14 @@
 //     pack's work);
 //   · estimateStep    the static count behind the designer's explanation and pool warnings («۴۸ نفر در ۴۸ شعبه؛ برای
 //     هر پرونده رئیس شعبه همان شعبه»; warnings from 30, the limits 100 and 50);
-//   · positionsOverview  the positions with their current holders, units, vacancies and sources («نقش‌های سازمانی»).
+//   · positionsOverview  the positions with their current holders, units, vacancies and sources («نقش‌های سازمانی»;
+//     the demo pack's own marked `demo`);
+//   · demoPeopleOf    the organisation's demo pack people (1.1.5): the pickers and the positions page mark them
+//     «نمایشی», and the preview and the estimate count them apart — they take only the pack's own cases (FINAL-1).
 // Previews and estimates are for the people who design workflows (`process_design` write) or keep the organisation's
 // structure (`org` write beyond their own groups): they show who holds which post and who stands in for whom.
 import type { Ctx } from "../../context";
+import type { DemoPeople } from "@shared/process/waiting";
 import { pgArray } from "../../db";
 import { demoPeople } from "../../db/scope";
 import { bad, forbidden, notFound } from "../../http/errors";
@@ -27,6 +31,7 @@ import {
   type AssigneeFacts, type AssigneeRule, type PoolCounts, type Quorum, type StepAction, type StepAssignees,
 } from "@shared/process/assignees";
 import { Resolution, resolveAssignees, type ResolveResult } from "./resolve";
+import { readsDesignOrPositions } from "./demo";
 
 export const PREVIEW_REFUSAL = "پیش‌نمایش انجام‌دهنده‌ها با طراحان گردش‌کار و نگه‌دارندگان ساختار سازمانی است";
 
@@ -120,7 +125,8 @@ export interface PreviewResult extends ResolveResult {
   warnings: string[];
   /** one line per person, as the designer's canvas shows them */
   lines: string[];
-  display: { users: Record<string, string>; positions: Record<string, string>; units: Record<string, string>; groups: Record<string, string> };
+  /** `demo`: lower-case ids of the demo pack's people among `users` */
+  display: { users: Record<string, string>; positions: Record<string, string>; units: Record<string, string>; groups: Record<string, string>; demo: string[] };
 }
 
 /** Names of the people, positions, units and groups a result names. */
@@ -145,6 +151,7 @@ async function displayOf(ctx: Ctx, result: ResolveResult): Promise<PreviewResult
     positions: Object.fromEntries(positions.map((r) => [r.key, r.name])),
     units: Object.fromEntries(units.map((r) => [r.id.toLowerCase(), r.name])),
     groups: Object.fromEntries(groups.map((r) => [r.id.toLowerCase(), r.name])),
+    demo: [...(await demoPeople(ctx.db, org, users))].sort(),
   };
 }
 
@@ -201,9 +208,12 @@ export interface EstimateInput {
 }
 
 export interface EstimateResult {
-  rules: { index: number; kind: AssigneeRule["kind"]; estimate: number | null; line: string }[];
+  /** `demo`: how many of the people the rule names (its holders, members, role holders, named people) are the demo pack's */
+  rules: { index: number; kind: AssigneeRule["kind"]; estimate: number | null; line: string; demo?: number }[];
   /** the most people the step's rules can bring (null: depends on each case) */
   total: number | null;
+  /** the demo pack's people within `total` (they take only the pack's own cases) */
+  demo: number;
   limit: number;
   warnings: string[];
 }
@@ -217,19 +227,31 @@ export async function estimateStep(ctx: Ctx, input: EstimateInput): Promise<Esti
   const holderCounts = new Map<string, { people: number; units: number; name: string; kind: string | null }>();
   const groupCounts = new Map<string, number>();
   const roleCounts = new Map<string, number>();
-  for (const r of step.assignees) {
+  // the people each rule names (its holders, members, role holders, named people), for the demo pack's count
+  const named = new Map<number, Set<string>>();
+  const narrow = (users: Iterable<string>, members?: string[]) => new Set([...users].map((u) => u.toLowerCase()).filter((u) => !members?.length || members.includes(u)));
+  for (const [i, r] of step.assignees.entries()) {
     if (r.kind === "position") {
       const pos = await reader.position(r.position);
       if (!pos) continue;
       const unit = r.where === "unit" ? (r.unit ?? null) : null;
       const rows = await reader.holders(pos.id, unit ? [unit] : null);
       holderCounts.set(`${r.position}|${unit ?? ""}`, { people: new Set(rows.map((h) => h.user_id)).size, units: new Set(rows.map((h) => h.org_unit_id ?? "")).size, name: pos.name, kind: pos.unit_kind });
+      named.set(i, narrow(rows.map((h) => h.user_id), r.members));
     } else if (r.kind === "group") {
-      groupCounts.set(`${r.group}|${r.leadsOnly ? 1 : 0}`, new Set((await reader.groupPeople([r.group], r.leadsOnly)).map((f) => f.user)).size);
+      const people = await reader.groupPeople([r.group], r.leadsOnly);
+      groupCounts.set(`${r.group}|${r.leadsOnly ? 1 : 0}`, new Set(people.map((f) => f.user)).size);
+      named.set(i, narrow(people.map((f) => f.user), r.members));
     } else if (r.kind === "role") {
-      roleCounts.set(r.role, (await reader.rolePeople(r.role)).length);
+      const people = await reader.rolePeople(r.role);
+      roleCounts.set(r.role, people.length);
+      named.set(i, narrow(people, r.members));
+    } else if (r.kind === "users") {
+      named.set(i, narrow(r.users));
     }
   }
+  const pack = await demoPeople(ctx.db, ctx.org.id, [...new Set([...named.values()].flatMap((x) => [...x]))]);
+  const demoOf = (i: number) => (named.has(i) ? [...named.get(i)!].filter((u) => pack.has(u)).length : undefined);
   const counts: PoolCounts = {
     holders: (p, unit) => holderCounts.get(`${p}|${unit ?? ""}`)?.people ?? null,
     group: (g, leads) => groupCounts.get(`${g}|${leads ? 1 : 0}`) ?? null,
@@ -248,6 +270,9 @@ export async function estimateStep(ctx: Ctx, input: EstimateInput): Promise<Esti
         if (!c) line = `نقش سازمانی «${r.position}» پیدا نشد`;
         else if (r.where === "anywhere") line = `${faDigits(c.people)} نفر «${name}» در همهٔ سازمان`;
         else if (r.where === "unit") line = `${faDigits(c.people)} نفر «${name}» در واحد برگزیده`;
+        // the requester's own unit (their profile's), never the nearest one up: a requester in a department under the
+        // branch finds nobody (the designer's scope line says the same)
+        else if (r.where === "requester_unit") line = `${faDigits(c.people)} نفر در ${faDigits(c.units)} ${kindLabel(c.kind)}؛ برای هر پرونده فقط «${name}» خودِ واحد درخواست‌دهنده`;
         else {
           const kind = (r.where === "requester_unit_up" ? r.unitKind : null) ?? c.kind;
           line = `${faDigits(c.people)} نفر در ${faDigits(c.units)} ${kindLabel(kind)}؛ برای هر پرونده «${name}» همان ${kindLabel(kind)}`;
@@ -279,11 +304,37 @@ export async function estimateStep(ctx: Ctx, input: EstimateInput): Promise<Esti
         line = "درخواست‌دهنده";
     }
     if ("members" in r && r.members?.length) line += `؛ فقط ${faDigits(r.members.length)} نفر برگزیده`;
-    return { index, kind: r.kind, estimate, line };
+    const demo = demoOf(index);
+    return { index, kind: r.kind, estimate, line, ...(demo !== undefined ? { demo } : {}) };
   });
   const known = rules.map((r) => r.estimate);
   const total = known.some((n) => n === null) ? null : known.reduce<number>((s, n) => s + (n ?? 0), 0);
-  return { rules, total, limit: poolLimit(input.action, input.quorum), warnings: [...poolWarnings(step, input.action, input.quorum, counts), ...assigneeWarnings(step, input.action)] };
+  // the demo pack's people take only the pack's own cases (FINAL-1): said apart, never counted as the organisation's
+  const demo = rules.reduce((sum, r) => sum + (r.estimate !== null ? r.demo ?? 0 : 0), 0);
+  const anyDemo = rules.reduce((sum, r) => sum + (r.demo ?? 0), 0);
+  const warnings = [...poolWarnings(step, input.action, input.quorum, counts), ...assigneeWarnings(step, input.action)];
+  if (anyDemo) warnings.push(demoWarning(total !== null && total > 0 && demo >= total ? null : total !== null ? demo : anyDemo));
+  return { rules, total, demo, limit: poolLimit(input.action, input.quorum), warnings };
+}
+
+/** «۲ نفر از این افراد حساب نمایشی‌اند…»; null: every one of them. */
+export function demoWarning(n: number | null): string {
+  return n === null
+    ? "همهٔ این افراد حساب نمایشی‌اند؛ فقط پرونده‌هایی که حساب‌های نمایشی آغاز کنند به آن‌ها می‌رسد و پرونده‌های واقعی سازمان به کسی نمی‌رسد"
+    : `${faDigits(n)} نفر از این افراد حساب نمایشی‌اند؛ فقط پرونده‌هایی که حساب‌های نمایشی آغاز کنند به آن‌ها می‌رسد`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The demo pack's people
+
+/**
+ * The organisation's demo pack people (lower-case ids; none without a pack): the designer's and the positions page's
+ * pickers mark them «نمایشی». (Every other picker reads the mark on the member search's rows: ./demo.ts.)
+ */
+export async function demoPeopleOf(ctx: Ctx): Promise<DemoPeople> {
+  if (!(await readsDesignOrPositions(ctx))) throw forbidden("فهرست حساب‌های نمایشی با طراحان گردش‌کار و نگه‌دارندگان نقش‌های سازمانی است");
+  const rows = await ctx.db.query<{ id: string }>(`select id::text as id from sm_users where prefs ->> 'demo_org' = $1 order by id limit 20000`, [ctx.org.id]);
+  return { users: rows.map((r) => r.id.toLowerCase()) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -296,6 +347,8 @@ export interface PositionOverview {
   unit_kind: string | null;
   active: boolean;
   reports_to: string | null;
+  /** one of the demo pack's positions (release 1.1.5: marked «نمایشی»; making a pack person its holder asks nothing) */
+  demo: boolean;
   /** holders valid today, the units they hold it in, their sources */
   holders: number;
   units: number;
@@ -313,8 +366,9 @@ export async function positionsOverview(ctx: Ctx): Promise<{ positions: Position
   const today = localDate(Date.now(), orgTz(ctx));
   const soon = addDays(today, 30);
   const valid = `h.deleted_at is null and (h.valid_from is null or h.valid_from <= $2::date) and (h.valid_to is null or h.valid_to >= $2::date)`;
-  const rows = await ctx.db.query<{ id: string; key: string; name: string; unit_kind: string | null; active: boolean; reports_to: string | null; holders: number; units: number; manual: number; directory: number; import: number; ending: number }>(
+  const rows = await ctx.db.query<{ id: string; key: string; name: string; unit_kind: string | null; active: boolean; reports_to: string | null; demo: boolean; holders: number; units: number; manual: number; directory: number; import: number; ending: number }>(
     `select p.id, p.key, p.name, p.unit_kind, p.active, p.reports_to,
+            exists (select 1 from sm_demo_rows d where d.org_id = p.org_id and d.row_id = p.id) as demo,
             count(h.id) filter (where ${valid})::int as holders,
             count(distinct h.org_unit_id) filter (where ${valid})::int as units,
             count(h.id) filter (where ${valid} and h.source = 'manual')::int as manual,
@@ -337,7 +391,7 @@ export async function positionsOverview(ctx: Ctx): Promise<{ positions: Position
       );
       vacancies = v?.n ?? 0;
     }
-    out.push({ id: r.id, key: r.key, name: r.name, unit_kind: r.unit_kind, active: r.active !== false, reports_to: r.reports_to, holders: r.holders, units: r.units, sources: { manual: r.manual, directory: r.directory, import: r.import }, vacancies, ending: r.ending });
+    out.push({ id: r.id, key: r.key, name: r.name, unit_kind: r.unit_kind, active: r.active !== false, reports_to: r.reports_to, demo: r.demo === true, holders: r.holders, units: r.units, sources: { manual: r.manual, directory: r.directory, import: r.import }, vacancies, ending: r.ending });
   }
   return { positions: out, today };
 }

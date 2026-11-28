@@ -26,7 +26,7 @@ import { registerAiChannel } from "../ai/rag/registry";
 import { registerPortalItems, registerPortalLink } from "../portal/common";
 import { orgSchema } from "../../engine";
 import { DEPT_TABLES, hrStaffOnly, installEsmHooks } from "./hooks";
-import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, placeActivityOrder } from "./journeys";
+import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, orderExhausted, placeActivityOrder } from "./journeys";
 import { facilityHooks, installReservationApprovals, JOB_NO_SHOW, noShowJob } from "./facilities";
 import { autoCloseIn, parentsOf, rollupChildrenAtCommit } from "./cases";
 import { installEsmSkills } from "./ai";
@@ -132,10 +132,18 @@ export function installEsmModule(): void {
   }
 
   registerJobHandler(JOB_NO_SHOW, (job, jctx) => noShowJob(job, jctx));
-  registerJobHandler(JOB_ORDER, async (job, jctx) => {
-    if (!job.org_id || typeof job.payload?.id !== "string") return;
-    await placeActivityOrder(jctx.cfg, job.org_id, job.payload.id);
-  });
+  registerJobHandler(
+    JOB_ORDER,
+    async (job, jctx) => {
+      if (!job.org_id || typeof job.payload?.id !== "string") return;
+      await placeActivityOrder(jctx.cfg, job.org_id, job.payload.id);
+    },
+    {
+      onExhausted: async (job, ectx) => {
+        if (job.org_id && typeof job.payload?.id === "string") await orderExhausted(ectx.cfg, job.org_id, job.payload.id, ectx.error);
+      },
+    },
+  );
   registerJobHandler("esm.sweep", async (job, jctx) => {
     if (!job.org_id || !actsHere(jctx.cfg)) return;
     await esmSweep(jctx.cfg, job.org_id, jctx.deadline);

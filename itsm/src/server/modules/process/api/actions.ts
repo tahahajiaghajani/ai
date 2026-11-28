@@ -12,28 +12,36 @@
 //     – «توقف موقت» / «ادامه»: nobody acts and the timers wait while it is paused; when it resumes, the open rounds'
 //       due times, the time their escalations and reminders count from, and their last reminder and escalation move
 //       on by the pause;
-//     – «لغو پرونده» and «ادامه از مرحلهٔ …» (F4b's recovery services).
+//     – «لغو پرونده» and «ادامه از مرحلهٔ …» (F4b's recovery services);
+//     – «دوباره پیدا کردن انجام‌دهنده» (1.1.5): a step that waits with nobody (or more people than it takes) runs its
+//       rules again — the case version's, or the current version's for the same step (../reresolve).
 //   A requester's «لغو» (before any step after the start was done) is a submission (F4a).
 // Each is one transaction under the case's lock, journaled on the case and, for the managers' actions, recorded in
-// «گزارش رویدادها».
+// «گزارش رویدادها». The demo boundary (1.1.5, ../engine/boundary.ts): each runs as the case's work — inside the demo
+// pack's scope for a case of the pack's, whoever asks (its rows are the pack's, which the purge takes with the case),
+// outside every demo scope for any other; and one of the pack's people named a manager of an organisation's own case,
+// or holding one of its steps, is refused there (FINAL-1's `demoRealWork`).
 import { exclusionsOf } from "@shared/process/assignees";
 import { durationMs, formStepOf, processNodeLabel, quorumOf } from "@shared/process/graph";
 import { addBusiness } from "@shared/sla/calendar";
 import type { Ctx } from "../../../context";
-import { pgArray, type Tx } from "../../../db";
+import { pgArray, type Queryable, type Tx } from "../../../db";
 import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { createIn, get, isSystemCtx, orgTz, systemCtx, updateIn } from "../../../engine";
 import { audit } from "../../data/crud";
 import { demoPeople } from "../../../db/scope";
-import { DEMO_PEOPLE_REAL_WORK, Resolution } from "../../positions";
+import type { ReresolveInput, ReresolveResult } from "@shared/process/waiting";
+import { reresolveRoundIn } from "../reresolve";
+import { demoRealWork, Resolution } from "../../positions";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
 import { OPEN_STATES, processesRunHere, refreshCase, resolveInput, cancelCase, submitTask, startCase, type StartCaseInput, type SubmitTaskInput } from "../engine";
+import { inCaseScope, packOnRealCase } from "../engine/boundary";
 import { caseJournal } from "../engine/journal";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, type CaseRow } from "../engine/store";
 import { cancelAsManager, resumeFromStep } from "../recovery";
 import { wakeTimer } from "../timers/timer";
-import { managesCase } from "./common";
+import { managesCase, namedManager } from "./common";
 import { emitWaiting } from "./notices";
 
 export const CONNECTION_NEEDED = "این کار به اتصال نیاز دارد";
@@ -100,13 +108,16 @@ export async function claimStep(ctx: Ctx, taskId: string, opts: { release?: bool
   await needAuthority(ctx);
   const me = ctx.user.id;
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
-  return sys.write(async (tx) => {
+  // read before the transaction (PGlite has one connection): the case decides the scope
+  const caseId = isId(taskId) ? (await ctx.db.one<{ case_id: string }>(`select case_id from sm_process_tasks where org_id = $1 and id = $2`, [ctx.org.id, taskId.toLowerCase()]))?.case_id : null;
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () => sys.write(async (tx) => {
     const first = await taskOf(tx, ctx.org.id, taskId);
     if (!first) throw notFound("این مرحله پیدا نشد");
     const kase = await lockCase(tx, ctx.org.id, first.case_id);
     const t = await taskOf(tx, ctx.org.id, taskId);
     if (!kase || !t) throw notFound("این مرحله پیدا نشد");
     if (t.assigned_to !== me && t.delegated_from !== me) throw forbidden("این مرحله به شما سپرده نشده است");
+    if (await packOnRealCase(tx, ctx, kase.id)) throw demoRealWork(403);
     if (t.status !== "open" || !OPEN_STATES.has(kase.state)) throw conflict("این مرحله دیگر باز نیست");
     const round = (await caseTasks(tx, ctx.org.id, kase.id)).filter((x) => x.step_key === t.step_key && Number(x.round) === Number(t.round) && x.status === "open");
     if (opts.release) {
@@ -123,16 +134,26 @@ export async function claimStep(ctx: Ctx, taskId: string, opts: { release?: bool
     if (step?.action === "approve" && MANY.has(quorumOf(step))) throw conflict("این مرحله تصمیم چند نفر را می‌خواهد و برداشتنی نیست");
     for (const x of round) await updateIn(tx, sys, "process_task", x.id, { claimed_by: me }, { trusted: true });
     return { claimed_by: me };
-  });
+  }));
 }
 
 // ----- the managers' actions ---------------------------------------------------------------------------------
 
+/**
+ * Lock a case for a manager's action: its managers only, and never one of the demo pack's people on a case of the
+ * organisation's own — the pack takes none of its work (FINAL-1; NB4: their actions wrote the pack's rows into it).
+ */
 async function managedCase(tx: Tx, ctx: Ctx, caseId: string): Promise<CaseRow> {
   const kase = isId(caseId) ? await lockCase(tx, ctx.org.id, caseId) : null;
   if (!kase) throw notFound("پرونده پیدا نشد");
+  await refusePackManager(tx, ctx, kase);
   if (!(await managesCase(tx, ctx, kase))) throw forbidden(NOT_MANAGER);
   return kase;
+}
+
+/** One of the pack's people named to manage an organisation's own case asks to: FINAL-1's refusal (403, its own code). */
+async function refusePackManager(q: Queryable, ctx: Ctx, kase: Pick<CaseRow, "id" | "managers" | "manager_groups">): Promise<void> {
+  if ((await packOnRealCase(q, ctx, kase.id)) && (await namedManager(q, ctx, kase))) throw demoRealWork(403);
 }
 
 export interface ReassignInput {
@@ -153,7 +174,7 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
   await needRead(ctx, caseId);
   const note = comment(input.comment);
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
-  return sys.write(async (tx) => {
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () => sys.write(async (tx) => {
     const kase = await managedCase(tx, ctx, caseId);
     if (!OPEN_STATES.has(kase.state) || kase.state === "attention") throw conflict("مرحله‌های این پرونده ارجاع نمی‌شوند؛ پرونده باز نیست یا نیاز به بررسی دارد");
     const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
@@ -184,7 +205,7 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
       const requester = run.excluded(["requester"]);
       throw bad(to.some((u) => excluded.has(u) && requester.has(u)) ? "درخواست‌دهنده این مرحله را انجام نمی‌دهد" : "انجام‌دهندهٔ مرحله‌ای پیشین این مرحله را انجام نمی‌دهد");
     }
-    if ((await run.isReal()) && (await demoPeople(tx, ctx.org.id, to)).size) throw bad(DEMO_PEOPLE_REAL_WORK);
+    if ((await run.isReal()) && (await demoPeople(tx, ctx.org.id, to)).size) throw demoRealWork(400);
     const settled = await run.settle(
       to.map((user) => ({ user, via: { rule: 0, kind: "users" as const } })),
       excluded,
@@ -225,7 +246,7 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
     await emitWaiting(tx, ctx.org.id, kase, people.map((p) => p.user), label, false, isSystemCtx(ctx) ? null : ctx.user.id);
     await wakeTimer(tx, ctx.org.id, now);
     return { tasks: made };
-  });
+  }));
 }
 
 /** «توقف موقت» by a manager. */
@@ -234,7 +255,7 @@ export async function pauseCase(ctx: Ctx, caseId: string, input: { comment?: str
   await needRead(ctx, caseId);
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   const note = comment(input.comment);
-  return sys.write(async (tx) => {
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () => sys.write(async (tx) => {
     const kase = await managedCase(tx, ctx, caseId);
     if (!OPEN_STATES.has(kase.state) || kase.state === "attention") throw conflict("فقط پرونده‌ای که در جریان است موقتاً متوقف می‌شود");
     if (kase.paused_at) throw conflict("این پرونده پیش‌تر متوقف شده است");
@@ -243,7 +264,7 @@ export async function pauseCase(ctx: Ctx, caseId: string, input: { comment?: str
     await caseJournal(tx, sys, kase, `${who(ctx)} (مسئول گردش‌کار) پرونده را موقتاً متوقف کرد${note ? `: ${note}` : ""}`, { author: isSystemCtx(ctx) ? null : ctx.user.id, data: { paused: true } });
     if (!isSystemCtx(ctx)) await audit(tx, ctx, "process.pause", "process_case", kase.id, `${kase.number ?? ""}: توقف موقت`, { comment: note || null });
     return { paused_at: at };
-  });
+  }));
 }
 
 /**
@@ -257,7 +278,7 @@ export async function resumeCase(ctx: Ctx, caseId: string, input: { comment?: st
   await needRead(ctx, caseId);
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   const note = comment(input.comment);
-  return sys.write(async (tx) => {
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () => sys.write(async (tx) => {
     const kase = await managedCase(tx, ctx, caseId);
     if (!kase.paused_at || !OPEN_STATES.has(kase.state)) throw conflict("این پرونده متوقف نشده است");
     const now = Date.now();
@@ -293,15 +314,16 @@ export async function resumeCase(ctx: Ctx, caseId: string, input: { comment?: st
     if (!isSystemCtx(ctx)) await audit(tx, ctx, "process.resume", "process_case", kase.id, `${kase.number ?? ""}: ادامهٔ پرونده`, { comment: note || null, paused_ms: pausedFor });
     await wakeTimer(tx, ctx.org.id, now);
     return { state: String(row.state ?? "active") };
-  });
+  }));
 }
 
 /** «لغو پرونده»: a manager's (any open case) or the requester's (a submission, before any step after the start). */
 export async function cancelCaseAs(ctx: Ctx, caseId: string, input: { comment?: string | null } = {}) {
   if (!isId(caseId)) throw notFound("پرونده پیدا نشد");
   await get(ctx, "process_case", caseId);
-  const kase = isId(caseId) ? await ctx.db.one<CaseRow>(`select managers, manager_groups from sm_process_cases where org_id = $1 and id = $2 and deleted_at is null`, [ctx.org.id, caseId.toLowerCase()]) : null;
+  const kase = isId(caseId) ? await ctx.db.one<CaseRow>(`select id, managers, manager_groups from sm_process_cases where org_id = $1 and id = $2 and deleted_at is null`, [ctx.org.id, caseId.toLowerCase()]) : null;
   if (!kase) throw notFound("پرونده پیدا نشد");
+  await refusePackManager(ctx.db, ctx, kase);
   if (await managesCase(ctx.db, ctx, kase)) {
     await cancelAsManager(ctx, caseId, input);
     return { result: "applied" as const, by: "manager" as const };
@@ -312,3 +334,42 @@ export async function cancelCaseAs(ctx: Ctx, caseId: string, input: { comment?: 
 
 /** «ادامه از مرحلهٔ …» (a case that needs attention). */
 export const resumeFrom = (ctx: Ctx, caseId: string, input: { node: string; comment?: string | null }) => resumeFromStep(ctx, caseId, input.node, { comment: input.comment });
+
+/**
+ * «دوباره پیدا کردن انجام‌دهنده» by a manager: a step that waits with nobody, or with more people than it takes, runs
+ * its rules again (the case version's, or with `rules: "current"` the current version's for the same step); whoever is
+ * found gets the step in the same round. Journaled and audited whatever it finds. As the case's work, like every
+ * manager's action: a case of the demo pack's inside its demo scope (its new tasks are the pack's rows), any other
+ * outside it, whoever asks.
+ */
+export async function reresolveStep(ctx: Ctx, caseId: string, input: ReresolveInput): Promise<ReresolveResult> {
+  await needAuthority(ctx);
+  await needRead(ctx, caseId);
+  const stepKey = String(input.step ?? "").slice(0, 40);
+  const rules = input.rules === "current" ? "current" : "case";
+  const sys = await systemCtx(ctx.cfg, ctx.org.id);
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () =>
+    sys.write(async (tx) => {
+      const kase = await managedCase(tx, ctx, caseId);
+      if (!OPEN_STATES.has(kase.state) || kase.state === "attention") throw conflict("این پرونده باز نیست یا نیاز به بررسی دارد؛ انجام‌دهنده‌اش دوباره جسته نمی‌شود");
+      const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
+      const node = version?.graph.nodes.find((n) => n.id === stepKey && n.type === "form_step");
+      if (!version || !node) throw bad("این مرحله در پرونده نیست");
+      const r = await reresolveRoundIn(tx, sys, kase, version, node.id, { rules, by: isSystemCtx(ctx) ? null : { user: ctx.user.id, name: who(ctx) } });
+      if (!r) throw conflict("این مرحله منتظر انجام‌دهنده نیست؛ یا باز نیست یا کارش به کسی سپرده شده است");
+      const names = await peopleNames(tx, r.people.map((p) => p.user));
+      const pack = await demoPeople(tx, ctx.org.id, r.people.map((p) => p.user));
+      if (!isSystemCtx(ctx)) {
+        await audit(tx, ctx, "process.reresolve", "process_case", kase.id, `${kase.number ?? ""}: دوباره پیدا کردن انجام‌دهندهٔ «${r.label}»`, {
+          step: node.id, round: r.round, rules, status: r.status, to: r.people.map((p) => p.user),
+        });
+      }
+      return {
+        status: r.status,
+        people: r.people.map((p) => ({ id: p.user, name: names.get(p.user) ?? "—", demo: pack.has(p.user) })),
+        message: r.message,
+        notes: r.notes,
+      } satisfies ReresolveResult;
+    }),
+  );
+}

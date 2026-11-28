@@ -16,7 +16,7 @@ import type { TableDef } from "@shared/model/types";
 import { cleanText, detectLang, searchForm } from "@shared/ai/text";
 import { uuidv7 } from "@shared/id";
 import { condEnv, loadReadable, onRecordEvent, orgSchema, systemCtx } from "../../../engine";
-import { enqueue, registerJobHandler, type Job, type JobConfig, type JobContext, type JobResult } from "../../../jobs";
+import { enqueue, registerJobHandler, type ExhaustedContext, type Job, type JobConfig, type JobContext, type JobResult } from "../../../jobs";
 import { loadEnv, type AiEnv } from "../chain";
 import { chunkDocument, CHUNKER_VERSION, type Chunk } from "./chunker";
 import { activeEmbedder, embedTexts, EmbedUnavailableError, type EmbedderInfo } from "./embed";
@@ -309,6 +309,8 @@ async function runBackfill(job: Job, jctx: JobContext): Promise<JobResult> {
   const s = await indexSession(jctx.cfg, orgId);
   const tables = p.tables ?? (p.table ? [p.table] : ragTables().map((d) => d.key));
   const run = p.run ?? (await startRun(jctx.db, orgId, p.table ? `backfill:${p.table}` : "backfill"));
+  // the run's row is named in the payload at once: a job whose worker stops before its first save still ends it (the hook)
+  if (!p.run) await jctx.save({ ...p, run });
   const stats = p.stats ?? {};
   let at = p.at ?? 0;
   let cursor = p.cursor ?? null;
@@ -440,6 +442,7 @@ async function runReconcile(job: Job, jctx: JobContext): Promise<JobResult> {
   const s = await indexSession(jctx.cfg, orgId);
   const p = job.payload as { run?: string; stats?: Record<string, number> };
   const run = p.run ?? (await startRun(jctx.db, orgId, "reconcile"));
+  if (!p.run) await jctx.save({ ...p, run });
   const { stats, more } = await reconcile(s, { deadline: jctx.deadline - 500 });
   const total = addStats(p.stats ?? {}, stats);
   if (more) {
@@ -456,6 +459,12 @@ async function runReconcile(job: Job, jctx: JobContext): Promise<JobResult> {
   if (job.dedupe_key !== RAG_JOBS.reconcile) return;
   const tz = (s.sys.org.settings?.timezone as string | undefined) || "Asia/Tehran";
   return { again: msUntilNight(tz) };
+}
+
+/** A backfill or reconciliation that used its attempts without finishing: its run on the admin page ends with the reason. */
+async function runExhausted(job: Job, ectx: ExhaustedContext): Promise<void> {
+  const run = (job.payload as { run?: unknown }).run;
+  if (typeof run === "string") await ectx.db.query(`update sm_ai_rag_runs set error = $2, finished_at = now() where id = $1 and finished_at is null`, [run, ectx.error.slice(0, 500)]);
 }
 
 /** rag.sweep (Windows app): records the sync pull changed are indexed within minutes. */
@@ -498,9 +507,17 @@ export function installIndexer(): void {
     const s = await indexSession(jctx.cfg, job.org_id!);
     await indexRecord(s, p.table, p.id, { force: p.force });
   });
-  registerJobHandler(RAG_JOBS.backfill, runBackfill);
+  registerJobHandler(RAG_JOBS.backfill, runBackfill, { onExhausted: runExhausted });
   registerJobHandler(RAG_JOBS.embed, runEmbed);
-  registerJobHandler(RAG_JOBS.reconcile, runReconcile);
+  registerJobHandler(RAG_JOBS.reconcile, runReconcile, {
+    onExhausted: async (job, ectx) => {
+      await runExhausted(job, ectx);
+      // the nightly round queues itself again (a run asked for from the admin page ends here)
+      if (job.dedupe_key !== RAG_JOBS.reconcile || !job.org_id) return;
+      const org = await ectx.db.one<{ tz: string | null }>(`select settings->>'timezone' as tz from sm_orgs where id = $1 and deleted_at is null`, [job.org_id]);
+      if (org) await enqueue(ectx.db, { kind: RAG_JOBS.reconcile, orgId: job.org_id, payload: {}, delayMs: msUntilNight(org.tz || "Asia/Tehran"), dedupeKey: RAG_JOBS.reconcile, maxAttempts: 5 });
+    },
+  });
   registerJobHandler(RAG_JOBS.sweep, runSweep);
   // every write of an indexed table (the web version also for rows a Windows app pushed)
   // (never throws: a failure is retried by its own rag.index job, so the other subscribers of the event are not held up)

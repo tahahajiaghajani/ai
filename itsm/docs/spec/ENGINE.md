@@ -430,15 +430,37 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
   `dedupeKey`: no second job with that key per organisation while one is queued (the queued one's id is returned).
   `enqueueMany(q, jobs)` adds many with one statement (same dedupe rule); `jctx.saveIn(tx, payload)` saves a job's
   progress inside the transaction that does the work, so a retry after a crash skips what committed.
-- `tick` claims due jobs one at a time (`for update skip locked`; a running job's lock lasts 5 minutes and an expired
-  lock is taken over), runs handlers outside transactions until the budget is spent. A throw → retry after 15 s, 30 s,
-  1 min … ≤ 1 h (+20 % jitter) until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at
-  once; `{ again: ms }` reschedules without counting an attempt; `jctx.save(payload)` keeps progress; `jctx.deadline`
-  is when the budget ends. Finished jobs are kept 3 days (failed 30).
-- Triggers: the Windows app ticks every 10 s; the web version ticks after every write request that queued jobs
-  (`cfg.waitUntil`, Next.js `after`, budget 4 s) and on `GET|POST /api/cron/tick` (Bearer `CRON_SECRET` when set;
-  call it every minute from Supabase pg_cron + pg_net or a GitHub Actions schedule; `vercel.json` has a daily
-  fallback).
+- `tick` claims due jobs one at a time (`for update skip locked`; the claim counts an attempt and stamps `updated_at`,
+  the claim time) and runs handlers outside transactions until the budget is spent. While a handler runs, a heartbeat
+  renews the job's 5-minute lock every minute, for at most 2 hours from the claim (`jctx.save`/`saveIn` renew it too,
+  and throw `JobClaimLost` once another worker holds the job); every outcome is written only while this worker holds
+  the claim (`status = 'running' and locked_by = worker`), so a lost claim writes nothing. An expired lock is a worker
+  that stopped (a function cut at its time limit, a process that died): the job is taken again while it has attempts
+  left, else failed with `EXHAUSTED_ERROR` (`failExhausted`, 100 a tick). A throw → retry after 15 s, 30 s, 1 min … ≤ 1 h
+  (+20 % jitter) until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at once;
+  `{ again: ms }` reschedules, and it or a success resets `attempts` (they count consecutive failures);
+  `jctx.save(payload)` keeps progress; `jctx.deadline` is when the budget ends.
+- A stateful kind registers its last word for a job that ends failed without finishing — its worker stopped at the last
+  attempt, or its handler threw at it (not `PermanentJobError`): `registerJobHandler(kind, fn, { onExhausted })` or
+  `registerJobExhausted(kind, hook)`. The hook runs after the job's update, in the job's demo scope, its error logged:
+  it puts the kind's row in a final state (a backup «failed», an agent or flow run «failed») or queues a chain's next
+  round at its interval (the mailbox poller, a directory sync, the nightly archival…). The statement that fails the job
+  records the hook as owed (`hook_due`, `hook_tries`): one that throws or is cut (a time limit, a closing app) runs
+  again at a later tick (`settleOwedHooks`, after 1, 2, 4… minutes, `HOOK_TRIES` in all, then given up as an error in
+  the log). The consoles' «لغو» of a queued job ends it the same way (`cancelQueuedJob`, cause `canceled`), and
+  «دوباره» of a chain's failed round whose next round is queued brings that round forward (`retryFailedJob`). A run
+  that returned is a success whatever happens to its outcome's write: a database failure there is tried again
+  (`OUTCOME_TRIES`), then at the process's next tick — never taken for the handler's failure. A chain's handler throws rather
+  than returns when a read fails, except when its organisation is gone. Finished jobs are kept 3 days (failed 30) and deleted by row address in batches of 2,000, at most 2 s of a
+  tick and once an hour per process (`cleanup: false` skips it).
+- Triggers: the Windows app ticks every 10 s; the server edition's scheduler leader on its interval and when a write
+  wakes it. The web version has no timer between requests: once an answer is ready (`cfg.waitUntil`, Next.js
+  `after`) a write request that queued jobs ticks for 4 s when one is due (`queueHasDue`, asked in that work after the
+  answer and given up after 2 s), any other request at most
+  once a minute per instance for 8 s when a job is due or a lock expired (`trafficTickDue`), both with
+  `cleanup: false`; and `GET|POST /api/cron/tick` ticks for 20 s with the cleanup (Bearer `CRON_SECRET` when set; call
+  it every minute from Supabase pg_cron + pg_net, docs/SETUP_FA.md §۴-۱, or a GitHub Actions schedule; `vercel.json`
+  has a daily fallback).
 
 ## 9. Access provider
 
@@ -718,11 +740,33 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   device's cursor passed `purge_mark` (the last tombstoning transaction's id + 1) — raising the watermark to the newest
   one, so an app left behind by a forced finalisation reads everything again; with no app active it deletes at once and
   raises the watermark to its own transaction (`tests/demo-sync.test.ts`).
+- **Purged demo ids** (`sm_demo_purged`, migration `0105_demo_purge_sync`, `modules/demo/ledger.ts`): the purge's
+  remove and finish phases record the id and table of every row they removed or tombstoned (the registry minus its jobs
+  and the accounts that live on), content-free, kept `LEDGER_DAYS` (30) and until every device of the organisation
+  (not revoked, synced within `LEDGER_DEVICE_DAYS`, 365) pulled since (`demo.ledger`, daily). `POST /sync/push` judges
+  every push against it (`modules/demo/pushed.ts`; one probe when the organisation has no ledger, one query for the
+  push's ids otherwise): a row whose id is purged is answered `skipped` and never resurrected; a side row of purged
+  data, a membership of a purged account and a new record whose required reference, `scope.parent`, requester,
+  `created_by`/`user_id` or a workflow row's process/version/task/case is purged belong to it — `skipped` (a dropped
+  record's side rows go with it); a new record's other pointers are emptied. A stored record keeps the server's value
+  wherever the push names purged data (the column left out of the upsert, a custom value put back from the stored
+  `custom`) and takes the rest of the push: never a `conflict` that would lose a person's edit. Lists lose the purged
+  ids. No new status and no protocol bump: every protocol-17 app drops an outbox entry answered `skipped`; the
+  answer's `purged: true` lets a 1.1.5 app drop its copy at once, with its trail and the local jobs and workflow drafts
+  naming it. Ids inside JSON values are not judged. A purge of a later pack treats ledgered ids as demo (`isDemo`) and
+  takes rows alive again under them into the registry (`reclaimLeftovers`); the loader takes an account it re-marks
+  (found by e-mail) out of the ledger. The pack's accounts are tombstoned content-free while apps are active
+  (`prefs.demo_purged`, own unique address, disabled): the app deletes such an account with its sessions and what names
+  it, and after a full read every account of the pack left without a membership.
 - **Scope epochs** (`sm_scope_epochs`): bumped per member when what they may read changes — by trigger on their
   membership (role, per-area access, activation), on the access tables (0007), on participant grants (0053: a service's
   owner and product owner, delegations, approvals; a delegation that starts or ends with time through the job
   `approval.delegation_epoch`) and by `bumpScopeEpoch(q, orgId, userId)` for everything else. A
-  desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope).
+  desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope). The demo
+  purge holds the per-row bumps of its access tables (`itsm.access_bulk`, `modules/demo/access-bulk.ts`: the triggers'
+  `sm_access_bump`/`sm_access_bump_everyone` only mark the transaction) and bumps the version and everyone's epoch
+  once before each of its transactions commits (a phase runs in one or more resumable steps, each its own transaction); `finalizeDemo` moves no epoch (its apps pulled the tombstones; one left behind reads
+  everything again through the watermark).
 - **Fields kept out of replicas** (`FieldDef.noSync`: a requested item's sensitive answers) never go down to a
   Windows app, even for people holding their field group: pulls leave them (and their history) out, a push never
   empties them (the replica never had the value; a value typed on the Windows app is taken), and the Windows app

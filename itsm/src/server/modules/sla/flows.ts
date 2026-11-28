@@ -85,8 +85,9 @@ export const approvalStep: FlowStepHandler = {
     const to = await recipients(s, c.approvers);
     if (!to.users.length && !to.groups.length) return { error: "تأییدکننده‌ای پیدا نشد" };
     const rule = RULES.includes(c.rule as ApprovalRule) ? (c.rule as ApprovalRule) : "any";
-    const title = s.text(c.title).trim().slice(0, 120) || "درخواست تأیید";
-    const message = s.text(c.message).trim().slice(0, 4000);
+    // the title and message people read: pills as their display text (a record's field by its `$labels`)
+    const title = s.display(c.title).trim().slice(0, 120) || "درخواست تأیید";
+    const message = s.display(c.message).trim().slice(0, 4000);
     const r = await requestApprovalIn(s.tx!, s.ctx, about.table, about.id, {
       users: to.users,
       groups: to.groups,

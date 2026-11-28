@@ -3,6 +3,9 @@
 // opens, with the steps before it as their actors — as notes on the canvas («علی احمدی — رئیس شعبه (شعبهٔ ونک)»); and a
 // step's form as its first person would see it (F2's preview with the step's rights as they are on the screen). Only
 // the people who may design or keep the organisation's structure may ask (F3's rule); the page offers it to them only.
+// While a demo pack is loaded its people are offered first as sample requesters (a case one of them starts reaches
+// the pack's holders; the organisation's own cases never do, FINAL-1) and marked «نمایشی» among a step's people; a
+// warning names the steps that find nobody, and the chosen step says why (the resolver's notes) and what it then does.
 import { useEffect, useId, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { formStepOf, startOf, type ProcessGraph } from "@shared/process";
@@ -14,15 +17,14 @@ import { useOrg } from "../../../../lib/org";
 import { useDebounced } from "../../../../lib/hooks";
 import { cx, Note } from "../../../../components/blocks";
 import { Loader } from "../../../../components/display";
-import { UserSelect } from "../../../../records/fields/RecordSelect";
 import { useMe, useSchema } from "../../../../records/data/hooks";
 import type { TableMeta } from "../../../../records/model/types";
-import { nodeTitle } from "../../kit";
+import { DemoTag, MemberSelect, nodeTitle, previewLines, previewVerdict } from "../../kit";
 import { FORM_KEYS, formsApi, type FormPreview } from "../forms/api";
 import { PreviewForm, type PreviewTab } from "../forms/parts";
 import { hubApi } from "../hub/api";
 import { DESIGNER_KEYS, designerApi, type ProcessDraft, type ResolveResult } from "./api";
-import { assigneesOf, previewBlocked, previewNote, previewSteps, resolveBody, resolvedPeople, stableJson, type CaseField, type FormInfo } from "./model";
+import { assigneesOf, previewBlocked, previewNote, previewSteps, previewSummary, resolveBody, resolvedPeople, stableJson, type CaseField, type FormInfo } from "./model";
 import { F } from "./parts";
 
 export interface PreviewProps {
@@ -86,6 +88,13 @@ function StepForm({ form, rights, as, fallback, values, onValues, unit, label }:
   );
 }
 
+/** What a chosen step does for the sample requester when nobody (or too many) is found. */
+function Verdict({ r, node }: { r: ResolveResult; node: ProcessGraph["nodes"][number] }) {
+  const step = formStepOf(node.config);
+  const v = previewVerdict(r, { action: step.action, ifNobody: step.ifNobody ?? null });
+  return v ? <Note tone={v.tone}>{v.text}</Note> : null;
+}
+
 export function PreviewPanel(p: PreviewProps) {
   const { api, orgId } = useOrg();
   const { userId } = useMe();
@@ -145,12 +154,13 @@ export function PreviewPanel(p: PreviewProps) {
   const selForm = selStep?.form ? p.forms.get(selStep.form) : undefined;
   const selFound = sel ? run.data?.[sel.id] : undefined;
   const firstPerson = selFound?.result ? resolvedPeople(selFound.result)[0] : undefined;
+  const summary = previewSummary(steps, run.data);
 
   return (
     <section className="wfm-panel wfp-preview" aria-label="پیش‌نمایش">
       <h2 className="wfm-panel-t">پیش‌نمایش</h2>
       <F label="درخواست‌دهندهٔ نمونه" htmlFor={`${uid}-req`}>
-        <UserSelect id={`${uid}-req`} value={requester} onChange={(v) => setRequester((v as string | null) ?? null)} allowClear={false} />
+        <MemberSelect id={`${uid}-req`} value={requester} onChange={(v) => setRequester((v as string | null) ?? null)} allowClear={false} demo="first" meFirst aria-label="درخواست‌دهندهٔ نمونه" />
       </F>
       {startForm && requester ? (
         <details className="wfp-sample">
@@ -160,6 +170,7 @@ export function PreviewPanel(p: PreviewProps) {
       ) : null}
       <h3 className="wfp-sub">افراد هر مرحله</h3>
       {run.isFetching ? <Loader label="پیدا کردن افراد" /> : null}
+      {summary && !run.isFetching ? <Note tone="warning">{summary}</Note> : null}
       {steps.length ? (
         <ol className="wfp-who-list">
           {steps.map((n) => {
@@ -170,18 +181,26 @@ export function PreviewPanel(p: PreviewProps) {
               <li key={n.id} className={cx(on && "is-sel", (f?.error || r?.status === "nobody" || r?.status === "too_many") && "is-warn")}>
                 <button type="button" className="wfp-who-btn" onClick={() => p.onSelect(n.id)} aria-current={on ? "step" : undefined}>
                   <strong>{nodeTitle(n)}</strong>
-                  <span>{f ? (r ? previewNote(r) : f.error) : "…"}</span>
+                  <span>
+                    {f ? (r ? previewNote(r) : f.error) : "…"}
+                    {r && r.lines.length === 1 && previewLines(r)[0].demo ? <DemoTag /> : null}
+                  </span>
                 </button>
                 {on && r && r.lines.length > 1 ? (
                   <ul className="wfp-who-more">
-                    {r.lines.slice(0, 20).map((l) => (
-                      <li key={l}>{l}</li>
-                    ))}
+                    {previewLines(r)
+                      .slice(0, 20)
+                      .map((l) => (
+                        <li key={l.line}>
+                          {l.line}
+                          {l.demo ? <DemoTag /> : null}
+                        </li>
+                      ))}
                     {r.lines.length > 20 ? <li>{`و ${faDigits(r.lines.length - 20)} نفر دیگر`}</li> : null}
                   </ul>
                 ) : null}
+                {on && r ? <Verdict r={r} node={n} /> : null}
                 {on && r ? [...r.notes, ...r.warnings].map((w) => <p key={w} className="wfk-warn">{w}</p>) : null}
-                {on && r?.status === "managers" ? <p className="rk-hint">کسی پیدا نشد؛ مرحله به مسئولان گردش‌کار می‌رسد.</p> : null}
               </li>
             );
           })}

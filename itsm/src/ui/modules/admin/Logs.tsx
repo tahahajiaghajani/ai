@@ -78,7 +78,10 @@ export default function Logs() {
       return String(r.created_at ?? r.started_at ?? r.at ?? "") || undefined;
     },
   });
-  const job = useAction((v: { id: string; action: "retry" | "cancel" }) => api.post(`/admin/jobs/${v.id}/${v.action}`), { invalidate: [["admin", "logs"]], success: (r: unknown) => ((r as { status?: string }).status === "queued" ? "کار دوباره در صف است" : "کار لغو شد") });
+  const job = useAction((v: { id: string; action: "retry" | "cancel" }) => api.post(`/admin/jobs/${v.id}/${v.action}`), { invalidate: [["admin", "logs"]], success: (r: unknown) => {
+    const a = r as { status?: string; message?: string };
+    return a.message ?? (a.status === "queued" ? "کار دوباره در صف است" : "کار لغو شد");
+  } });
   const rows = logs.data?.pages.flatMap((p) => p.rows) ?? [];
   const summary = logs.data?.pages[0]?.summary;
 

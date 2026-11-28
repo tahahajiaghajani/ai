@@ -8,7 +8,19 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE } from "../../src/shared/constants";
 import { backendExecArgv } from "../../src/shared/desktop/node-flags";
-import { createReadyWatch, noticeTexts, parseStartPhase, type StartNotice } from "../../src/shared/desktop/ready-watch";
+import {
+  CLOSE_BUTTONS,
+  STALL_BUTTONS,
+  STALL_TEXT,
+  closeQuestion,
+  countProgress,
+  createReadyWatch,
+  noticeTexts,
+  parseStartPhase,
+  type ReadyWatch,
+  type StartNotice,
+  type StartStage,
+} from "../../src/shared/desktop/ready-watch";
 import { warmable, warmScript } from "./warm";
 
 const APP_TITLE = APP_NAME;
@@ -91,6 +103,34 @@ let serverUrl = "";
 const iconPath = process.platform === "win32" && existsSync(join(__dirname, "icon.ico")) ? join(__dirname, "icon.ico") : join(__dirname, "icon.png");
 const trayIconPath = join(__dirname, "tray.png");
 
+/**
+ * The person chose to stop waiting for the local server (STALL_BUTTONS 1 or 2): the start ends without a second dialog,
+ * and the app runs again when they asked for it.
+ */
+class StartAbandoned extends Error {
+  constructor(readonly relaunch: boolean) {
+    super("the person stopped waiting for the local server");
+  }
+}
+
+/** The watch of the start in progress (null before it and once it has ended): closing the splash asks first by its stage. */
+let startWatch: ReadyWatch | null = null;
+/** The question on screen while the start is waited for (one at a time), and the one before the splash closes. */
+let stallCtl: AbortController | null = null;
+let closeCtl: AbortController | null = null;
+/**
+ * Has the local server begun to open its data — told its first phase, or got ready? Kept past the start's end. Before
+ * that it has written nothing but config.json (through a temporary file) and cannot hear a request to stop yet, so
+ * stopBackend kills it at once: the 10 s it gives a server would only let this one begin a scheduled restore or a
+ * recovery that the kill would then cut short, with no question asked.
+ */
+let serverOpening = false;
+/**
+ * The start's clock: monotonic, so a step of the system clock (Windows Time correcting a drifted laptop) neither ends a
+ * healthy start nor stretches a stuck one. (1.1.2's fixed 90 s ran on the event loop's monotonic time as well.)
+ */
+const clock = () => performance.now();
+
 function startBackend(): Promise<{ url: string; host: string }> {
   return new Promise((resolve, reject) => {
     const entry = join(__dirname, "backend.cjs");
@@ -115,33 +155,71 @@ function startBackend(): Promise<{ url: string; host: string }> {
     });
     // How long the start may take (src/shared/desktop/ready-watch.ts). The server opens its database on its only thread,
     // and a database that was not closed cleanly first replays its write-ahead log: minutes for gigabytes, without a word
-    // from the server meanwhile. So 90 s without a sign of progress count only before the server says it opens the
-    // database and after it says the database is open; during the open the app waits as long as the server's process
-    // lives, and the splash says what is going on. (A fixed 90 s for the whole start killed such a recovery, which then
-    // started over at the next start and was killed again: the app never opened again.)
-    const watch = createReadyWatch(Date.now());
+    // from the server meanwhile. So only before the server says it opens the database do 90 s without a sign bring up a
+    // question — wait on, run the app again, quit —, and «صبر می‌کنم» gives another 90 s. While the database opens there
+    // is no limit: the app waits as long as the server's process lives, and the splash says what is going on. From the
+    // migrations to ready only 30 minutes without a migration or schema step applied bring up the question. A phase or a
+    // step the server reports meanwhile withdraws it. Nothing here stops the server by itself any more: a fixed 90 s for
+    // the whole start killed such a recovery, which started over at the next start and was killed again — the app never
+    // opened again. The times come from a monotonic clock (`clock`).
+    const watch = createReadyWatch(clock());
+    startWatch = watch;
     let settled = false;
     let timer: ReturnType<typeof setInterval> | undefined;
     const settle = (done: () => void) => {
       if (settled) return;
       settled = true;
+      startWatch = null;
       clearInterval(timer);
+      // ready, an error or the server's exit decides now: a question still on screen is withdrawn
+      stallCtl?.abort();
+      closeCtl?.abort();
       endNotice();
       done();
     };
+    /** No sign of the server for long: the person decides whether to wait on (STALL_BUTTONS), one question at a time. */
+    const stall = (stage: StartStage, silentMs: number) => {
+      // one question at a time, and none once the app is on its way out (the splash closed, the person's answer)
+      if (stallCtl || closeCtl || quitting) return;
+      const secs = Math.round(silentMs / 1000);
+      // the smoke test (CI) has nobody to answer: it fails, as it did with the fixed limit
+      if (isSmoke) {
+        log(`[start] no sign of the local server for ${secs} s (${stage})`);
+        return settle(() => reject(new Error("سرور محلی در زمان مقرر آماده نشد")));
+      }
+      log(`[start] no sign of the local server for ${secs} s (${stage}): asking whether to wait`);
+      const ctl = new AbortController();
+      stallCtl = ctl;
+      const text = STALL_TEXT[stage === "migrations" ? "migrations" : "starting"];
+      const opts = { type: "warning" as const, title: APP_TITLE, message: text.message, detail: `${text.detail}\n\nگزارش: ${logFile}`, buttons: [...STALL_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal };
+      // owned by the splash, as the close question is: it stays above the splash (also after second-instance's focus())
+      // and the splash cannot be closed behind it, unseen
+      void (splash && !splash.isDestroyed() ? dialog.showMessageBox(splash, opts) : dialog.showMessageBox(opts))
+        .then(({ response }) => {
+          if (stallCtl === ctl) stallCtl = null;
+          if (settled) return;
+          if (response === 1 || response === 2) {
+            log(`[start] the person stopped waiting for the local server: it is stopped${response === 1 ? " and the app runs again" : ""}`);
+            return settle(() => reject(new StartAbandoned(response === 1)));
+          }
+          log(ctl.signal.aborted ? `[start] the local server spoke again (${watch.stage}): the question is withdrawn` : "[start] the person waits on");
+          watch.progress(clock());
+        });
+    };
     timer = setInterval(() => {
-      const v = watch.check(Date.now());
+      const v = watch.check(clock());
       if (v.kind === "wait") return showNotice(v.notice);
-      log(`[start] no sign of the local server for ${Math.round(v.silentMs / 1000)} s (${v.stage})`);
-      settle(() => reject(new Error("سرور محلی در زمان مقرر آماده نشد")));
+      stall(v.stage, v.silentMs);
     }, 1000);
     backend.stdout?.on("data", (d) => {
       const text = String(d);
       log(`[server] ${text.trimEnd()}`);
-      // real progress: every database migration the server applies moves the splash on, and its budget starts again
-      const applied = text.match(/migration \S+ applied/g)?.length ?? 0;
+      // real progress: every migration and schema step the server applies moves the splash on, starts the budget again
+      // and withdraws a question on screen
+      const applied = countProgress(text);
       if (applied) {
-        watch.progress(Date.now());
+        stallCtl?.abort();
+        watch.progress(clock());
         onMigrations(applied);
       }
     });
@@ -149,14 +227,21 @@ function startBackend(): Promise<{ url: string; host: string }> {
     backend.on("message", (m: any) => {
       const phase = parseStartPhase(m);
       if (phase) {
-        watch.phase(phase, Date.now());
+        serverOpening = true;
+        if (settled) return; // a start the person gave up on, or that failed: nothing more to tell
+        // a sign of the server: a question still on screen is withdrawn, and the start goes on
+        stallCtl?.abort();
+        watch.phase(phase, clock());
         if (phase.phase === "migrations") endNotice();
         else {
           // a database with a large log to replay is told at once (otherwise the timer tells a long open)
-          const v = watch.check(Date.now());
+          const v = watch.check(clock());
           if (v.kind === "wait") showNotice(v.notice);
         }
-      } else if (m?.type === "ready") settle(() => resolve({ url: m.url, host: m.host }));
+      } else if (m?.type === "ready") {
+        serverOpening = true;
+        settle(() => resolve({ url: m.url, host: m.host }));
+      }
       else if (m?.type === "error") settle(() => reject(new Error(m.message)));
     });
     backend.on("exit", (code) => {
@@ -188,6 +273,7 @@ function startBackend(): Promise<{ url: string; host: string }> {
 // desktop/src/splash.html (copied next to main.cjs): 520 × 320, frameless, rounded, the monogram's launch and a real
 // progress line driven by the stages below through its `itsm.*` API. The name and tagline come in the query string.
 const SPLASH_MIN_MS = 1100; // let the launch (≈ 1 s) finish even on a fast start
+/** clock() when the splash came on screen (a step of the system clock must not hold the window back) */
 let splashShownAt = 0;
 let splashLoaded: Promise<void> = Promise.resolve();
 
@@ -215,11 +301,53 @@ function createSplash() {
   });
   splash.loadFile(join(__dirname, "splash.html"), { query: { name: APP_NAME, tagline: APP_TAGLINE } });
   splash.once("ready-to-show", () => {
-    splashShownAt = Date.now();
+    splashShownAt = clock();
     splash?.show();
+  });
+  // Closing the splash (the taskbar's close, Alt+F4) while the database opens or is updated would stop the server
+  // midway: it cannot hear a request to stop before it is ready (src/desktop/backend-entry.ts), so quit() kills it after
+  // 10 s, and a recovery then starts over at the next start, a migration is redone — and a restore of a backup is left
+  // half-done, not done again. So the person is asked first — caught here rather than with setClosable(false), which
+  // would leave the taskbar's close and Alt+F4 doing nothing. Before the open the splash closes as it always did, and the
+  // server, which has opened nothing yet, is killed at once (stopBackend: `serverOpening`); once the start is over it
+  // closes as always. destroy() emits no 'close', so finishSplash and a failed start are never asked about.
+  splash.on("close", (e) => {
+    const w = startWatch;
+    if (quitting || !w) return;
+    const stage = w.stage;
+    if (stage !== "database" && stage !== "migrations") return;
+    e.preventDefault();
+    // one question at a time (a question of the stall on screen already offers to quit)
+    if (!closeCtl && !stallCtl) askBeforeClose(stage, w.recovering, w.restoring);
   });
   splash.on("closed", () => (splash = null));
   void splashCall(`itsm.version(${JSON.stringify(`نسخهٔ ${faDigits(app.getVersion())}`)})`);
+}
+
+/**
+ * The person closes the splash while the database opens (or a backup is restored) or is updated: «صبر می‌کنم» keeps it,
+ * «بستن برنامه» stops the server — killed after 10 s, as it cannot hear the request yet — and ends the app
+ * (CLOSE_BUTTONS). Ready, an error or the server's exit withdraws the question (settle in startBackend).
+ */
+function askBeforeClose(stage: "database" | "migrations", recovering: boolean, restoring: boolean) {
+  const ctl = new AbortController();
+  closeCtl = ctl;
+  const what = stage === "migrations" ? "update" : restoring ? "restore" : "open";
+  log(`[start] the person closes the splash during the database's ${what}: asking first`);
+  const q = closeQuestion(stage, recovering, restoring);
+  const opts = { type: "warning" as const, title: APP_TITLE, message: q.message, detail: q.detail, buttons: [...CLOSE_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal };
+  const asked = splash && !splash.isDestroyed() ? dialog.showMessageBox(splash, opts) : dialog.showMessageBox(opts);
+  void asked.then(async ({ response }) => {
+    if (closeCtl === ctl) closeCtl = null;
+    if (response !== 1) {
+      if (!ctl.signal.aborted) log("[start] the person keeps the splash open and waits on");
+      return;
+    }
+    log(`[start] the person closed the splash during the database's ${what}: the server is stopped`);
+    quitting = true;
+    splash?.destroy();
+    await quit();
+  });
 }
 
 /** Runs `js` in the splash once it has loaded (ignored when the splash is gone). */
@@ -239,7 +367,7 @@ function splashStep(p: number, cap: number, status: string, tau?: number) {
 /** Completes the progress line, then swaps the splash for the main window. */
 async function finishSplash(show: () => void) {
   if (!splash || splash.isDestroyed()) return show();
-  const wait = Math.max(0, SPLASH_MIN_MS - (splashShownAt ? Date.now() - splashShownAt : 0));
+  const wait = Math.max(0, SPLASH_MIN_MS - (splashShownAt ? clock() - splashShownAt : 0));
   if (wait) await new Promise((r) => setTimeout(r, wait));
   await splashCall(`itsm.ready("آماده است")`);
   await new Promise((r) => setTimeout(r, 650));
@@ -255,7 +383,10 @@ function onMigrations(n: number) {
   migrationsSeen += n;
   if (serverReady) return; // a late stdout chunk must not move the status line back
   const p = Math.min(0.6, 0.08 + migrationsSeen * 0.04);
-  splashStep(p, Math.min(0.64, p + 0.06), firstRun ? "آماده‌سازی برای نخستین اجرا…" : "به‌روزرسانی داده‌ها…", 1.5);
+  // a compaction's step (src/desktop/maintenance.ts) moves the line on but leaves the status line to its note, which
+  // counts the compaction's own time there every second ("" keeps the splash's status)
+  const status = noticeShown === "maintenance" ? "" : firstRun ? "آماده‌سازی برای نخستین اجرا…" : "به‌روزرسانی داده‌ها…";
+  splashStep(p, Math.min(0.64, p + 0.06), status, 1.5);
 }
 
 /** The status line the start began with (bootStatus): the base of a notice, and what comes back after it. */
@@ -284,8 +415,8 @@ function endNotice() {
 
 /** Resolves once the page has replaced the boot screen of index.html with the app and painted text (at most `max` ms). */
 async function appRendered(w: BrowserWindow, max = 6000) {
-  const until = Date.now() + max;
-  while (Date.now() < until && !w.isDestroyed()) {
+  const until = clock() + max;
+  while (clock() < until && !w.isDestroyed()) {
     try {
       const done = await w.webContents.executeJavaScript(`(() => { const r = document.getElementById("root"); return !!r && !r.querySelector(":scope > .boot") && r.innerText.trim().length > 0 && document.fonts.status === "loaded"; })()`, true);
       if (done) return;
@@ -400,13 +531,17 @@ function createTray() {
 /**
  * Asks the local server to close the database and waits until it has exited (at most `ms`), then makes sure it is gone.
  * Closing is a checkpoint and PGlite's own shutdown (src/server/db/pglite.ts): usually well under a second, as the
- * running app checkpoints its log as it goes. Killing it earlier only costs a replay of the log at the next start.
+ * running app checkpoints its log as it goes. Killing it earlier only costs a replay of the log at the next start. A
+ * server that has not told its first phase yet is killed at once (`serverOpening`).
  */
 async function stopBackend(ms = 10_000) {
   const b = backend;
   if (!b) return;
   const exited = new Promise<void>((r) => b.once("exit", () => r()));
   b.postMessage({ type: "shutdown" });
+  // before its first phase the server has opened nothing and cannot hear the request: the 10 s would only let it begin a
+  // scheduled restore or a recovery that the kill would then cut short
+  if (!serverOpening) b.kill();
   await Promise.race([exited, new Promise((r) => setTimeout(r, ms))]);
   if (backend === b) b.kill();
 }
@@ -620,6 +755,9 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
     splashStep(0.06, 0.62, boot.text, boot.tau);
     try {
       const { url } = await startBackend();
+      // closed while it started (the person's «بستن برنامه», a close before the open) and the server got ready within
+      // quit()'s 10 s: quit() ends the app — no window opens on its way out
+      if (quitting) return;
       serverUrl = url;
       serverReady = true;
       splashStep(0.7, 0.88, "آماده‌سازی میز کار…", 1.6);
@@ -632,6 +770,13 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       // (window-all-closed → quit), this dialog with it
       quitting = true;
       splash?.destroy();
+      if (e instanceof StartAbandoned) {
+        // the person has answered the question of the stall: no second dialog. The server is asked to stop, and killed —
+        // before it is ready it cannot hear the request: at once before its first phase, else after 10 s
+        await stopBackend();
+        if (e.relaunch) app.relaunch();
+        return app.exit(1);
+      }
       const r = await dialog.showMessageBox({
         type: "error",
         title: APP_TITLE,
