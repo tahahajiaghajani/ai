@@ -147,6 +147,11 @@ describe("every public list of collections uses listed", () => {
     expect(src).not.toMatch(/k\.media \|\| k\.soon/);
   });
 
+  it("the shop's filter is plain text, not a showcase: it keeps every collection with pieces, whose cards it also names", () => {
+    expect(read("src/components/pages/shop-page.tsx")).toContain("const collections = catalog.collections.filter((k) => !k.soon).map(");
+    expect(read("src/components/shop/shop-grid.tsx")).toContain("collectionName={p.collection ? colName.get(p.collection) : undefined}");
+  });
+
   it("no arch is drawn on the night ground for a missing picture any more", () => {
     for (const f of ["src/components/home/sections.tsx", "src/components/pages/collections-page.tsx"]) expect(read(f), f).not.toMatch(/!(c|k)\.media && <span/);
   });
