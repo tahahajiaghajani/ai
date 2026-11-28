@@ -63,5 +63,8 @@ describe("assistant knowledge", () => {
     const p = chatSystemPrompt(k);
     expect(p).toContain("<knowledge>");
     expect(p).toContain("Answer ONLY from the facts");
+    // the owner's rules reach the model: credit, and no way to his GitHub
+    expect(p).toContain("never give a link to, or the name of, a GitHub account");
+    expect(p).not.toMatch(/github\.com|tahahajiaghajani/i);
   });
 });

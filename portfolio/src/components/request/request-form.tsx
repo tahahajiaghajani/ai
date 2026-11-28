@@ -217,8 +217,8 @@ export function RequestForm({ lang }: { lang: Lang }) {
         </button>
         <p className="max-w-[46ch] text-[0.75rem] leading-relaxed text-faint">
           {fa
-            ? "درخواست در مخزن خصوصی طاها نگه داشته می‌شود. متن آن (بدون نام شما) برای دسته‌بندی به Google Gemini فرستاده می‌شود و خبرش همراه راه تماس شما با ربات پیام‌رسان به طاها می‌رسد؛ اطلاعات محرمانه ننویسید."
-            : "Your request is kept in Taha's private repository. Its text (without your name) goes to Google Gemini for triage, and a messenger bot sends Taha a notice with your contact details — please don't include anything confidential."}
+            ? "درخواست در فضای خصوصی طاها نگه داشته می‌شود. متن آن (بدون نام شما) برای دسته‌بندی به Google Gemini فرستاده می‌شود و خبرش همراه راه تماس شما با ربات پیام‌رسان به طاها می‌رسد؛ اطلاعات محرمانه ننویسید."
+            : "Your request is kept in Taha's private storage. Its text (without your name) goes to Google Gemini for triage, and a messenger bot sends Taha a notice with your contact details — please don't include anything confidential."}
         </p>
       </div>
     </form>

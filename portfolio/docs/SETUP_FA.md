@@ -40,7 +40,7 @@
 
 ## ۳. پروژه‌ی Vercel
 
-1. [vercel.com/new](https://vercel.com/new) → مخزن `tahahajiaghajani/ai` را **Import** کنید. اگر مخزن را نمی‌بینید: **Adjust GitHub App Permissions** و دسترسی Vercel به این مخزن را بدهید.
+1. [vercel.com/new](https://vercel.com/new) → مخزن همین برنامه را **Import** کنید. اگر مخزن را نمی‌بینید: **Adjust GitHub App Permissions** و دسترسی Vercel به این مخزن را بدهید.
 2. **Project Name:** مثلاً `taha-portfolio`. این نام نشانی اولیه را می‌سازد (`taha-portfolio.vercel.app`).
 3. **Root Directory** → **Edit** → پوشه‌ی `portfolio` را انتخاب کنید. **این مهم‌ترین گام است.** Framework Preset خودکار Next.js می‌شود؛ Build و Install Command را دست نزنید.
 4. **Environment Variables** را اضافه کنید و برای همه، در ستون Environments **فقط Production** را نگه دارید (تیک Preview و Development را بردارید):
@@ -48,7 +48,7 @@
 | نام | مقدار | |
 |---|---|---|
 | `GITHUB_TOKEN` | توکن گام ۲ (`github_pat_…`) | ضروری |
-| `GITHUB_REPO` | `tahahajiaghajani/portfolio-data` (نام کاربری/نام مخزن داده) | ضروری |
+| `GITHUB_REPO` | `نام‌کاربری/portfolio-data` (نام کاربری خودتان/نام مخزن داده) | ضروری |
 | `ADMIN_PASSWORD` | یک رمز قوی برای پنل `/admin` | ضروری |
 | `APP_SECRET` | یک رشته‌ی **تصادفی** دست‌کم ۳۲ نویسه‌ای، مثلاً خروجی `openssl rand -hex 32` یا یک گذرواژه‌ساز. کوتاه‌تر از ۳۲ نویسه پذیرفته نمی‌شود | ضروری |
 | `NEXT_PUBLIC_SITE_URL` | نشانی نهایی سایت (بعد از گام ۷) | بعداً |
