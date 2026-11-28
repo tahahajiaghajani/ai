@@ -553,17 +553,6 @@ describe("the step form", () => {
     const records = readFileSync(join(__dirname, "../src/ui/records/records.css"), "utf8");
     expect(records).toContain(".rk-seg.ant-segmented .ant-segmented-group { flex-wrap: wrap; inline-size: auto; }");
   });
-
-  it("1.1.5: on a phone the record kit's grid drops its column gaps too, so a record page's fields stay inside their section", () => {
-    // RecordForm lays every record page out on the same 24-column grid: on a phone each field takes the whole row, but
-    // the 23 column gaps stayed, wider than a 375 px screen's form (its section's content box), so every field of
-    // «کار تازه» was drawn from x = -26 against a section from 16 (scripts/ui-shots.mjs: «… outside their form section»)
-    const records = readFileSync(join(__dirname, "../src/ui/records/records.css"), "utf8").replace(/\s+/g, " ");
-    const gap = Number(/\.rk-grid \{ display: grid; grid-template-columns: repeat\(24, minmax\(0, 1fr\)\); gap: \d+px (\d+)px; \}/.exec(records)?.[1]);
-    const phoneForm = 375 - 2 * 16 - 2 * (16 + 1); // the page's gutters, the section's padding and border
-    expect(23 * gap).toBeGreaterThan(phoneForm);
-    expect(records).toContain("@media (max-width: 639.98px) { .rk-grid { column-gap: 0; } .rk-f { grid-column: 1 / -1; } }");
-  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1043,5 +1032,21 @@ describe("«راهنما» says what 1.1.5 does with a step's people — the own
     expect(demo).toContain("فرم‌های زبانه‌دار");
     expect(demo).not.toContain("چندزبانه");
     expect(demo).toContain("برچسب «نمایشی»");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// the record kit on a phone (the same grid the process form uses)
+
+describe("the record kit's form on a phone", () => {
+  it("1.1.5: on a phone the record kit's grid drops its column gaps too, so a record page's fields stay inside their section", () => {
+    // RecordForm lays every record page out on the same 24-column grid: on a phone each field takes the whole row, but
+    // the 23 column gaps stayed, wider than a 375 px screen's form (its section's content box), so every field of
+    // «کار تازه» was drawn from x = -26 against a section from 16 (scripts/ui-shots.mjs: «… outside their form section»)
+    const records = readFileSync(join(__dirname, "../src/ui/records/records.css"), "utf8").replace(/\s+/g, " ");
+    const gap = Number(/\.rk-grid \{ display: grid; grid-template-columns: repeat\(24, minmax\(0, 1fr\)\); gap: \d+px (\d+)px; \}/.exec(records)?.[1]);
+    const phoneForm = 375 - 2 * 16 - 2 * (16 + 1); // the page's gutters, the section's padding and border
+    expect(23 * gap).toBeGreaterThan(phoneForm);
+    expect(records).toContain("@media (max-width: 639.98px) { .rk-grid { column-gap: 0; } .rk-f { grid-column: 1 / -1; } }");
   });
 });

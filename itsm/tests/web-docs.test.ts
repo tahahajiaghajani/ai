@@ -3,12 +3,12 @@
 // a role-level time-out does not end the stuck pooler backend of 1.1.3, the job queue's rules, and the Ignored Build
 // Step the Vercel project runs. The numbers come from the files that set them where this tree has them.
 import { describe, it, expect } from "vitest";
+import { MIGRATIONS } from "@server/db/migrations";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXHAUSTED_BATCH, HEARTBEAT_MAX_MS, HEARTBEAT_MS, LOCK_MS } from "@server/jobs";
-import { MIGRATIONS } from "@server/db/migrations";
 
 const ROOT = join(__dirname, "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf8");
