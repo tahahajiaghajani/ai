@@ -11,7 +11,7 @@ import { gsap } from "@/components/fx/gsap";
 import { OVERLAY_EVENT, useMotionReduced } from "@/components/fx/motion";
 import { SlotVideo } from "@/components/fx/slot-video";
 import { DEPTH_EVENT } from "@/components/fx/use-pointer-depth";
-import { focusStillHere, handsOnFocus } from "@/components/home/hero-focus";
+import { focusStillHere, handsOnFocus, restsOnFocus } from "@/components/home/hero-focus";
 import { heroPose, offsetOf, poseStyle, ringIndex, ringLength, ringNear, STAGE_RATIO, STEP } from "@/components/home/hero-pose";
 import { Icon } from "@/components/ui/icons";
 
@@ -45,8 +45,9 @@ type Hold = "hover" | "focus" | "drag" | "hidden" | "view" | "overlay";
  * the others move along, growing or shrinking between the side and centre shapes (hero-pose.ts); the one leaving
  * fades out past the far side. The arches keep their pointer lean, glints and scroll parting.
  *
- * - Turns by itself only with motion allowed, and rests while the pointer is over the arches, while focus is inside,
- *   while a dialog is open, the tab is hidden or the arcade is out of view; the first turn waits for the unveil.
+ * - Turns by itself only with motion allowed, and rests while the pointer is over the arches, while keyboard focus is
+ *   inside (not the focus a click or tap leaves on a button: that turn resumes after one dwell), while a dialog is
+ *   open, the tab is hidden or the arcade is out of view; the first turn waits for the unveil.
  * - Controls under the sill (previous / next and a dwell hairline), arrow keys, a swipe on touch, and a click on a
  *   side arch bring a picture to the centre (instantly with reduced motion). Only the centre is a link.
  * - Server-rendered and without JS: exactly the three arches of the first view, still.
@@ -290,14 +291,17 @@ export function HeroArcade({
     if (link.startsWith("/") && !link.startsWith("//")) router.prefetch(link);
   }, [router, link]);
 
-  // keyboard turns keep the focus on the centre link (the old centre stops being one)
+  // keyboard turns keep the focus on the centre link (the old centre stops being one), and the arcade resting
   useEffect(() => {
     if (!handOn || !focusStillHere(stage.current, document.activeElement, document.body)) return;
     stage.current?.querySelector<HTMLElement>("a[href]")?.focus({ preventScroll: true });
-  }, [handOn]);
+    if (stage.current?.contains(document.activeElement)) hold("focus", true);
+  }, [handOn, hold]);
 
   // ---------------------------------------------------------------- input
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // the keyboard rests the arcade, also on a button first focused by a click (no new focus event marks it)
+    hold("focus", true);
     if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
     refocus.current = Boolean(stage.current?.contains(document.activeElement));
@@ -305,7 +309,9 @@ export function HeroArcade({
     step((e.key === "ArrowLeft") === rtl ? 1 : -1);
   };
 
-  const onFocus = () => hold("focus", true);
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    if (restsOnFocus(e.target)) hold("focus", true);
+  };
   const onBlur = (e: FocusEvent<HTMLDivElement>) => {
     if (!region.current?.contains(e.relatedTarget as Node | null)) hold("focus", false);
   };

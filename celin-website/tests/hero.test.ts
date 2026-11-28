@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FakeDb } from "./stubs/fake-db";
 import { CENTRE_H, CENTRE_W, GAP, heroPose, offsetOf, ringIndex, ringLength, ringNear, SIDE_H, SIDE_W, wrap } from "@/components/home/hero-pose";
-import { focusStillHere, handsOnFocus } from "@/components/home/hero-focus";
+import { focusStillHere, handsOnFocus, restsOnFocus } from "@/components/home/hero-focus";
 import { resolveGallery } from "@/lib/slot-types";
 import type { Media } from "@/lib/media";
 
@@ -120,6 +120,21 @@ describe("the arcade's poses", () => {
 });
 
 describe("the arcade's focus", () => {
+  const el = (visible: boolean | "unsupported") => ({
+    matches: (selector: string) => {
+      if (visible === "unsupported") throw new SyntaxError(`'${selector}' is not a valid selector`);
+      return selector === ":focus-visible" && visible;
+    },
+  });
+
+  it("rests for keyboard focus only: the focus a click or tap leaves on «قبلی/بعدی» lets it turn on after one dwell", () => {
+    expect(restsOnFocus(el(true))).toBe(true);
+    expect(restsOnFocus(el(false))).toBe(false);
+    // a browser without :focus-visible rests on any focus, as before
+    expect(restsOnFocus(el("unsupported"))).toBe(true);
+    expect(restsOnFocus(null)).toBe(false);
+  });
+
   it("hands the focus on after a keyboard turn only while it is still on the arches", () => {
     const centre = { name: "the old centre link" };
     const button = { name: "«قبلی», tabbed to during the glide" };
