@@ -5,6 +5,7 @@
 // table of the organisation, so it is not part of the purge itself on large organisations. And no posting of the
 // ledger stands without its run as posted (`brokenPostings`): what a run posted goes or stays with the run.
 import type { Queryable } from "../../db";
+import { ORG_TABLES } from "./catalog";
 import { physicalTables } from "@shared/tables";
 import { archivable, archiveTableOf } from "../../engine/ddl";
 import { keptColumns, PLATFORM_KEPT, TRAIL_TABLE_NAMES } from "./refs";
@@ -48,17 +49,7 @@ export async function danglingRefs(q: Queryable, orgId: string, removed: Iterabl
   const kept = keptColumns(defs);
   for (const d of defs) if (archivable(d) && kept.has(d.table)) kept.set(archiveTableOf(d), kept.get(d.table)!);
   for (const [t, cols] of Object.entries(PLATFORM_KEPT)) kept.set(t, new Set(["created_by", "updated_by", ...cols]));
-  const tables = await q.query<{ t: string; has_id: boolean; has_deleted: boolean }>(
-    `select c.table_name as t,
-            bool_or(c.column_name = 'id') as has_id,
-            bool_or(c.column_name = 'deleted_at') as has_deleted
-       from information_schema.columns c
-       join information_schema.tables tb on tb.table_schema = c.table_schema and tb.table_name = c.table_name and tb.table_type = 'BASE TABLE'
-      where c.table_schema = current_schema() and c.table_name like 'sm\\_%'
-      group by c.table_name
-     having bool_or(c.column_name = 'org_id')
-      order by 1`,
-  );
+  const tables = await q.query<{ t: string; has_id: boolean; has_deleted: boolean }>(ORG_TABLES);
   const out: Dangling[] = [];
   const scan = (table: string, rows: { k: string; j: Record<string, unknown> }[]) => {
     let d: Dangling | null = null;

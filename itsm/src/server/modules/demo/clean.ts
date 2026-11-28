@@ -41,6 +41,7 @@ import {
 } from "./refs";
 import { failReason, inSavepoint, type CleanedDefinition, type ReroutedBucket, type Skipped, type TableInfo } from "./purge";
 import { isPurgedSql } from "./ledger";
+import { hasTable } from "./catalog";
 import { reviewLine } from "./review";
 import { refOf, rowWords } from "./samples";
 
@@ -78,7 +79,7 @@ export const noNames = (): GoneNames => ({ positions: [], libraryFields: [], tab
 
 /** The names of what goes, read while the removed rows are still there. */
 export async function planNames(q: Queryable, orgId: string): Promise<GoneNames> {
-  const has = async (t: string) => !!(await q.one(`select 1 from information_schema.tables where table_schema = current_schema() and table_name = $1`, [t]));
+  const has = async (t: string) => !!(await q.one<{ x: boolean }>(`select ${hasTable("$1")} as x`, [t]))?.x;
   const out = noNames();
   if (await has("sm_positions")) {
     const pos = await q.query<{ id: string; key: string | null }>(`select x.id::text as id, x.key from sm_positions x where x.org_id = $1 and ${isDemo("x.id")}`, [orgId]);

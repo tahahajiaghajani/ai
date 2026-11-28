@@ -15,6 +15,7 @@ import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { ident } from "../../db/sql";
 import { inDemoScope } from "../../db/scope";
 import { archivable, archiveTableOf } from "../../engine/ddl";
+import { hasColumn } from "./catalog";
 
 /** Days a purged id is kept at least. */
 export const LEDGER_DAYS = 30;
@@ -68,7 +69,7 @@ export async function recordPurged(tx: Queryable, orgId: string, rows?: PurgedRo
     const archives = new Map(physicalTables().filter(archivable).map((d) => [d.table, archiveTableOf(d)]));
     const tables = await tx.query<{ tbl: string; here: boolean; soft: boolean }>(
       `select t.tbl, to_regclass(t.tbl) is not null as here,
-              exists (select 1 from information_schema.columns c where c.table_schema = current_schema() and c.table_name = t.tbl and c.column_name = 'deleted_at') as soft
+              ${hasColumn("t.tbl", "deleted_at")} as soft
          from (select distinct d.tbl from sm_demo_rows d where d.org_id = $1 and d.tbl <> 'sm_jobs') t`,
       [orgId],
     );
@@ -125,7 +126,7 @@ export async function reclaimLeftovers(tx: Queryable, orgId: string): Promise<nu
   const tables = await tx.query<{ tbl: string }>(
     `select distinct p.tbl from sm_demo_purged p
       where p.org_id = $1 and p.tbl <> 'sm_users' and to_regclass(p.tbl) is not null
-        and exists (select 1 from information_schema.columns c where c.table_schema = current_schema() and c.table_name = p.tbl and c.column_name = 'org_id')`,
+        and ${hasColumn("p.tbl", "org_id")}`,
     [orgId],
   );
   let n = 0;

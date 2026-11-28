@@ -60,6 +60,7 @@ import { notePurged, notePurgedHere } from "../../sync/snapshot";
 import { DEMO_JOB_SQL } from "../../jobs";
 import { ABOUT_COLUMNS, fieldRefs, ID_TEXT, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_DERIVES } from "./refs";
 import { isPurgedSql, tombstoneAccounts } from "./ledger";
+import { TABLE_COLUMNS } from "./catalog";
 
 export interface ColInfo {
   name: string;
@@ -198,13 +199,7 @@ export function tablesInfo(q: Queryable, cacheKey?: object): Promise<TableInfo[]
 }
 
 async function loadInfo(q: Queryable): Promise<TableInfo[]> {
-  const rows = await q.query<{ t: string; c: string; dt: string; nul: string; def: boolean; gen: string | null }>(
-    `select c.table_name as t, c.column_name as c, c.data_type as dt, c.is_nullable as nul, c.column_default is not null as def, c.is_generated as gen
-       from information_schema.columns c
-       join information_schema.tables tb on tb.table_schema = c.table_schema and tb.table_name = c.table_name and tb.table_type = 'BASE TABLE'
-      where c.table_schema = current_schema() and c.table_name like 'sm\\_%'
-      order by c.table_name, c.ordinal_position`,
-  );
+  const rows = await q.query<{ t: string; c: string; dt: string; nul: string; def: boolean; gen: string | null }>(TABLE_COLUMNS);
   const defs = new Map<string, { def: TableDef; arc: boolean }>();
   for (const def of physicalTables()) {
     defs.set(def.table, { def, arc: false });
