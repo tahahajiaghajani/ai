@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { refresh as refreshRouter } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { signIn } from "@/app/actions/account";
@@ -134,8 +134,9 @@ export async function logout(): Promise<void> {
   redirect("/admin/login");
 }
 
+/** The panel page the action came from is rendered again into its answer. */
 function refresh() {
-  revalidatePath("/admin", "layout");
+  refreshRouter();
 }
 
 const bool = (v: unknown) => v === true || v === "on" || v === "true";

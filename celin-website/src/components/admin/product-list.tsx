@@ -9,6 +9,7 @@ import type { ProductStatus } from "@/lib/catalog-types";
 import { formatPrice, num } from "@/lib/format";
 import { Badge, Button, ConfirmButton, Empty, Input, LinkButton, MoneyInput, Select, Spinner } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
+import { usePending } from "@/components/admin/pending";
 import { CountInput } from "@/components/admin/count-input";
 import { STATUS_LABEL, STATUS_TONE, stockLevel } from "@/components/admin/catalog-labels";
 import { Icon, type IconName } from "@/components/ui/icons";
@@ -41,6 +42,8 @@ export function ProductList({
   const [stock, setStock] = useState<"" | "low" | "out">(initial.stock ?? "");
   const [cat, setCat] = useState("");
   const [col, setCol] = useState("");
+  // «انتشار / لغو انتشار» shows the new state at once, before the refreshed list arrives
+  const live = usePending(items, (p) => p.status);
   const catName = useMemo(() => new Map(categories.map((c) => [c.id, c.name_fa])), [categories]);
   const colName = useMemo(() => new Map(collections.map((c) => [c.id, c.name_fa])), [collections]);
 
@@ -135,7 +138,14 @@ export function ProductList({
               </div>
               <ul className="divide-y divide-line">
                 {shown.map((p) => (
-                  <ProductRow key={p.id} p={p} lowStock={lowStock} taxa={[p.category_id ? catName.get(p.category_id) : "", p.collection_id ? colName.get(p.collection_id) : ""]} />
+                  <ProductRow
+                    key={p.id}
+                    p={{ ...p, status: live.get(p.id, p.status) }}
+                    lowStock={lowStock}
+                    taxa={[p.category_id ? catName.get(p.category_id) : "", p.collection_id ? colName.get(p.collection_id) : ""]}
+                    onStatus={(s) => live.set(p.id, s)}
+                    onStatusFailed={() => live.drop(p.id)}
+                  />
                 ))}
               </ul>
             </div>
@@ -169,13 +179,19 @@ function StarterBanner({ starter }: { starter: { products: number; categories: n
   );
 }
 
-function ProductRow({ p, taxa, lowStock }: { p: AdminProductListItem; taxa: (string | undefined)[]; lowStock: number }) {
+function ProductRow({ p, taxa, lowStock, onStatus, onStatusFailed }: { p: AdminProductListItem; taxa: (string | undefined)[]; lowStock: number; onStatus: (s: ProductStatus) => void; onStatusFailed: () => void }) {
   const router = useRouter();
   const pub = useAction();
   const dup = useAction();
   const del = useAction();
   const [cat, col] = taxa;
   const published = p.status === "published";
+  // the badge and the button change at once and go back if the change fails
+  const publish = () => {
+    const status: ProductStatus = published ? "draft" : "published";
+    onStatus(status);
+    pub.run(() => adminQuickUpdate({ id: p.id, status }), { onError: onStatusFailed });
+  };
   return (
     <li data-product={p.slug} className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 xl:grid-cols-[48px_minmax(0,1fr)_132px_92px_164px_116px_184px] xl:items-center xl:gap-x-4">
       <Link href={`/admin/products/${p.id}`} className="row-span-3 self-start xl:row-span-1 xl:self-center" tabIndex={-1} aria-hidden>
@@ -214,7 +230,7 @@ function ProductRow({ p, taxa, lowStock }: { p: AdminProductListItem; taxa: (str
           label={published ? "برگشت به پیش‌نویس" : "انتشار در سایت"}
           text={published ? "لغو انتشار" : "انتشار"}
           pending={pub.pending}
-          onClick={() => pub.run(() => adminQuickUpdate({ id: p.id, status: published ? "draft" : "published" }), { silent: false })}
+          onClick={publish}
         />
         {published && <IconLink href={`/product/${p.slug}`} icon="external" label="مشاهده در سایت" external />}
         <IconButton icon="copy" label="ساختن نسخه‌ی کپی" pending={dup.pending} onClick={() => dup.run(() => adminDuplicateProduct({ id: p.id }), { onOk: (r) => router.push(`/admin/products/${r.id}`) })} />

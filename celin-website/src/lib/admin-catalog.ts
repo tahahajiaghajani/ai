@@ -459,6 +459,21 @@ export async function saveTaxon(kind: TaxonKind, id: string | null, input: Recor
   return out;
 }
 
+/**
+ * Only the «نمایش» switch of a row: writes `visible` and nothing else, so a row drawn from an older copy of the list
+ * never writes its other fields (picture, order, texts) back over fresher ones.
+ */
+export async function setTaxonVisible(kind: TaxonKind, id: string, visible: boolean): Promise<void> {
+  await assertAdmin();
+  const gone = () => new UserError("این مورد پیدا نشد؛ صفحه را دوباره باز کنید.");
+  if (!UUID.test(id)) throw gone();
+  const c = requireDb();
+  const { data, error } = await c.from(`celin_${kind}`).update({ visible, updated_at: new Date().toISOString() }).eq("id", id).select("id");
+  if (error) throw dbError(error);
+  if (!((data ?? []) as unknown[]).length) throw gone();
+  await catalogChanged();
+}
+
 export async function deleteTaxon(kind: TaxonKind, id: string): Promise<void> {
   await assertAdmin();
   const c = requireDb();
