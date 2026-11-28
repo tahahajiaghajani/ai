@@ -285,10 +285,10 @@ P=$VERCEL_GIT_PREVIOUS_SHA; [ "$P" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; [ -z 
 
 **بخش `git cat-file -e` را حذف نکنید.** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است. اگر پروژه مدتی ساخته نشده باشد، آن کامیت در clone نیست و `git diff` به‌تنهایی با خطای `fatal: bad object` (خروجی ۱۲۸) تمام می‌شود؛ Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل انتشار پیش از ساخت شکست می‌خورد. با این بخش، در این حالت ITSM ساخته می‌شود.
 
-پروژه‌ای که ریشهٔ مخزن را می‌سازد (Task Flow) دستور مشابهی را (بی دو بخش نخست) در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا، از جمله `itsm`. `':!itsm'` شکل کوتاه `':(exclude)itsm'` است؛ Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند:
+پروژه‌ای که ریشهٔ مخزن را می‌سازد (Task Flow) دستور مشابهی را با بخش Redeploy و بی بخش نخستین انتشار در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا، از جمله `itsm`. Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند؛ برای همین کامیت قبلی (`VERCEL_GIT_PREVIOUS_SHA` یا `HEAD^`) یک بار در `p` گذاشته می‌شود و `':!itsm'` شکل کوتاه `':(exclude)itsm'` است:
 
 ```bash
-git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . ':!siraf' ':!itsm' ':!pars-website' ':!celin-website' ':!portfolio' || exit 1
+p=${VERCEL_GIT_PREVIOUS_SHA:-HEAD^};[ "$p" = "$VERCEL_GIT_COMMIT_SHA" ]&&exit 1;git cat-file -e "$p^{commit}" 2>/dev/null&&git diff --quiet "$p" HEAD -- . ':!siraf' ':!itsm' ':!pars-website' ':!celin-website' ':!portfolio'||exit 1
 ```
 
 اگر قبلاً در داشبورد یکی از این پروژه‌ها دستوری گذاشته‌اید، آن را با همین دستور عوض یا پاک کنید: فقط برای شاخه‌هایی به کار می‌رود که این `vercel.json` را هنوز ندارند.
