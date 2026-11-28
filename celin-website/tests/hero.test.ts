@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { FakeDb } from "./stubs/fake-db";
 import { CENTRE_H, CENTRE_W, GAP, heroPose, offsetOf, ringIndex, ringLength, ringNear, SIDE_H, SIDE_W, wrap } from "@/components/home/hero-pose";
 import { focusStillHere, handsOnFocus, restsOnFocus } from "@/components/home/hero-focus";
+import { galleryFiles, slotPicture } from "@/components/admin/slot-payload";
 import { resolveGallery } from "@/lib/slot-types";
 import type { Media } from "@/lib/media";
 
@@ -248,7 +249,7 @@ describe("the opening's list of pictures (celin_slots.gallery)", () => {
     expect(fake.table("celin_slots")).toHaveLength(0);
   });
 
-  it("says plainly when the gallery column is missing", async () => {
+  it("says plainly when the gallery column is missing, and still saves the opening without a list", async () => {
     fake.columns.celin_slots = SLOT_COLS.filter((c) => c !== "gallery");
     const ids = ["one", "two", "three"].map(media);
     const { saveSlot } = await import("@/lib/slots");
@@ -256,6 +257,72 @@ describe("the opening's list of pictures (celin_slots.gallery)", () => {
     // the other slots still save
     await saveSlot("home.statement", { media_id: ids[0], texts: {} });
     expect(fake.table("celin_slots").map((r) => r.key)).toEqual(["home.statement"]);
+    // and so do the opening's texts (the sheet sends no list when it is unchanged)
+    await saveSlot("home.hero.a", { media_id: null, texts: { title: { fa: "عنوان تازه", en: "A new title" } } });
+    expect(fake.table("celin_slots").find((r) => r.key === "home.hero.a")).toMatchObject({ media_id: null, texts: { title: { fa: "عنوان تازه", en: "A new title" } } });
+  });
+
+  it("has the sheet send the list only when it changed (a built-in picture copied into the library, or a new alt text, is no change)", () => {
+    const seed: Media = { ...pic("x"), src: "/media/seed/choker-rose" };
+    const adopted: Media = { ...seed, id: "id-choker" };
+    const [b, c, d] = ["b", "c", "d"].map((k) => pic(k, `id-${k}`));
+    const opened = galleryFiles([seed, b, c]);
+    expect(slotPicture(null, { items: [seed, b, c], opened })).toEqual({ media_id: null });
+    expect(slotPicture(b, { items: [b, c, d], opened: galleryFiles([b, c, d]) })).toEqual({ media_id: "id-b" });
+    expect(slotPicture(null, { items: [adopted, { ...b, alt_fa: "تازه", fx: 30 }, c], opened })).toEqual({ media_id: null });
+    // reordered, added, removed: the list goes
+    expect(slotPicture(null, { items: [b, seed, c], opened })).toEqual({ gallery: ["id-b", "seed:choker-rose", "id-c"] });
+    expect(slotPicture(null, { items: [seed, b, c, d], opened })).toEqual({ gallery: ["seed:choker-rose", "id-b", "id-c", "id-d"] });
+    expect(slotPicture(null, { items: [seed, b], opened })).toEqual({ gallery: ["seed:choker-rose", "id-b"] });
+    expect(slotPicture(null, { items: [seed, b, d], opened })).toEqual({ gallery: ["seed:choker-rose", "id-b", "id-d"] });
+    // every other slot: its picture
+    expect(slotPicture(d, null)).toEqual({ media_id: "id-d" });
+    expect(slotPicture(null, null)).toEqual({ media_id: null });
+  });
+
+  it("saves the opening's texts, button, phone picture and video before the round-six SQL; a changed list still asks for it", async () => {
+    fake.columns.celin_slots = SLOT_COLS.filter((c) => c !== "gallery");
+    const [a, b, phone] = ["a-own", "b-own", "phone"].map(media);
+    fake.table("celin_slots").push({ key: "home.hero.a", media_id: a, media_mobile_id: null, video_id: null, texts: {}, updated_at: "" });
+    fake.table("celin_slots").push({ key: "home.hero.b", media_id: b, media_mobile_id: null, video_id: null, texts: {}, updated_at: "" });
+    const { getSlotsFresh, saveSlot } = await import("@/lib/slots");
+    // as the sheet opens it: the former three pictures
+    const hero = (await getSlotsFresh())["home.hero.a"];
+    const items = hero.gallery ?? [];
+    expect(items.map((m) => m.alt_fa)).toEqual(["a-own", expect.any(String), "b-own"]);
+    const opened = galleryFiles(items);
+    const chosen = hero.media.id ? hero.media : null;
+    const video = crypto.randomUUID();
+    const texts = {
+      eyebrow: { fa: "برچسب تازه", en: "A new label" },
+      title: { fa: "عنوان تازه", en: "A new title" },
+      cta: { fa: "دیدن مجموعه‌ها", en: "See the collections" },
+      href: { fa: "/collections/celin", en: "/collections/celin" },
+    };
+    await saveSlot("home.hero.a", { ...slotPicture(chosen, { items, opened }), media_mobile_id: phone, video_id: video, texts });
+    const row = fake.table("celin_slots").find((r) => r.key === "home.hero.a");
+    expect(row).toMatchObject({ media_id: a, media_mobile_id: phone, video_id: video, texts });
+    expect(row).not.toHaveProperty("gallery");
+    // the former pictures stay the list's fallback
+    expect(fake.table("celin_slots").map((r) => r.key)).toEqual(["home.hero.a", "home.hero.b"]);
+    expect((await getSlotsFresh())["home.hero.a"].gallery?.map((m) => m.src)).toEqual(opened);
+    // a changed list still asks for the SQL, and writes nothing
+    const moved = [items[1], items[0], items[2]];
+    await expect(saveSlot("home.hero.a", { ...slotPicture(chosen, { items: moved, opened }), media_mobile_id: null, video_id: null, texts: {} })).rejects.toThrow("ستون تصاویر سرآغاز");
+    expect(fake.table("celin_slots").find((r) => r.key === "home.hero.a")).toMatchObject({ media_id: a, media_mobile_id: phone, video_id: video, texts });
+  });
+
+  it("keeps a saved list as it is when only the texts change after the SQL", async () => {
+    const ids = ["one", "two", "three", "four"].map(media);
+    fake.table("celin_slots").push({ key: "home.hero.a", media_id: ids[0], media_mobile_id: null, video_id: null, gallery: ids, texts: {}, updated_at: "" });
+    const { getSlotsFresh, saveSlot } = await import("@/lib/slots");
+    const hero = (await getSlotsFresh())["home.hero.a"];
+    const items = hero.gallery ?? [];
+    const payload = slotPicture(hero.media.id ? hero.media : null, { items, opened: galleryFiles(items) });
+    expect(payload).toEqual({ media_id: ids[0] });
+    await saveSlot("home.hero.a", { ...payload, texts: { title: { fa: "عنوان", en: "Title" } } });
+    expect(fake.table("celin_slots")).toHaveLength(1);
+    expect(fake.table("celin_slots")[0]).toMatchObject({ media_id: ids[0], gallery: ids, texts: { title: { fa: "عنوان", en: "Title" } } });
   });
 
   it("goes back to the built-in pictures on reset (the former slots' rows too)", async () => {
